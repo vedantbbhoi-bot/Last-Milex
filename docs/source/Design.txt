@@ -1,0 +1,34 @@
+
+---
+
+## FILE 4: `DESIGN.md`
+
+```markdown
+# Design: Production UI, State Model, and Anti-Slop Motion
+
+## UI Layout (Multi-Role SPA)
+
+| Region | Content | Role Visibility |
+|--------|---------|-----------------|
+| **Top Bar** | Live metrics: `% Spoiled`, `Ghost Revokes`, `Split Sub-batches`, `Deliveries`, `Reroutes`. Animated counters via GSAP spring. | All |
+| **Left Panel — Donor Queue** | Parent batches with **nested sub-batch chips** (one chip per split unit). Each chip shows quantity, dependency tag, countdown ring, and status dot. | Donor + Rider |
+| **Center Panel — Flow View** | SVG: donors left, shelters right, riders on **GSAP MotionPath curves**. Sub-batch chips visually attach to rider paths once claimed. | All |
+| **Right Panel — Shelter Board** | Capacity bars + resource badges. When demand hits 0, card **collapses inward** with spring, then fades. | Shelter + Rider |
+| **Bottom Bar — Control Deck** | Four failure-injection buttons (ghost, fill, dependency, force-split). Each has an 80ms press-down micro-interaction. | Admin/Judge |
+| **Rider Cockpit** | Rider-only modal: active claim, **heartbeat indicator** (pulsing dot, green < 30s, amber 30–60s, red > 60s), "Confirm Pickup" button, remaining shelf-life. | Rider |
+| **At-Risk Banner** | Persistent banner when any sub-batch is `at_risk` (no reachable fallback). | All |
+
+## State Model (Realtime-Synced)
+
+```javascript
+{
+  batches: [{
+    id, total_quantity, dependency, expires_at, status,
+    sub_batches: [{ id, quantity, status, assigned_rider_id, assigned_shelter_id,
+                    confirmation_deadline, heartbeat_at, expires_at }]
+  }],
+  riders:    [{ id, status, vehicle_capacity, current_sub_batch_id, last_heartbeat_at }],
+  shelters:  [{ id, name, capacity, current_demand, resources, location }],
+  at_risk:   [{ sub_batch_id, reason: 'no_fallback'|'dependency_violation' }],
+  metrics:   { total, spoiled, dead_man_revokes, deliveries, reroutes, splits }
+}

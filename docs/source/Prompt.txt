@@ -1,0 +1,78 @@
+Hey, I need your help building a hackathon project end to end. Please read this whole message before you start writing any code, because a lot of the decisions depend on each other.
+
+WHAT THE PROJECT IS
+
+It's called the Last-Mile Spoilage Trap. The idea comes from a real problem: every night, restaurants, hostel messes and pharmacies try to donate cooked food and short-life supplies to night shelters and relief camps. There are enough donors and enough volunteer riders on two-wheelers, but around 40% of perishable aid still goes to waste because nobody coordinates the last mile properly.
+
+I want a production-ready, real-time web platform with a live PostgreSQL backend, logged-in roles (donor, rider, shelter, admin) and a UI that feels intentional rather than generic. The judges will test it by injecting failures on purpose, so everything has to hold up under that.
+
+I've attached my planning files (Problem_Statement.md, Tech_Stack.md, Component_software.txt, Pipeline.txt, Design.txt, Task.txt, and the SQL files for the splitter, heartbeat, rerouter and expiry). Treat those as the source of truth. If something in this message disagrees with them, tell me instead of silently picking one.
+
+THE FOUR PROBLEMS WE ARE SOLVING
+
+1. Bulk supply vs fragmented demand. A banquet hall has 180 meals that spoil in 75 minutes, a scooter carries 40, and Shelter A only has room for 50. That mismatch causes spoilage.
+
+2. Ghost reservations. A rider claims a batch, gets stuck in traffic, goes silent for 30 minutes, and by the time the claim is cancelled there are only 15 minutes of shelf-life left. Nobody else can make it.
+
+3. Mid-journey demand collapse. A rider is halfway to a shelter with 40 meals and someone walks in and fills that shelter's requirement. The rider is stranded with no fallback.
+
+4. Dependency violations. Raw ration kits or infant formula should never go to a shelter that currently has no clean water or no cooking fuel.
+
+THE THREE PRIMITIVES (these are the heart of the project)
+
+First, the Dynamic Batch Splitter. It takes a total quantity, an expiry and a dependency tag (none, water, fuel or both) and breaks the load into sub-batches. Each sub-batch has to respect the vehicle capacity (40) and the demand of the shelter it is bound to, and skip shelters that don't meet the dependency. Every sub-batch keeps its own expiry clock. This must be atomic and run on the server, never trusted to the client.
+
+Second, the Heartbeat and Dead-Man's Claim Timeout. When a rider claims a sub-batch they get a hard 5 minute window to confirm pickup, and while holding the claim the rider app sends a heartbeat every 60 seconds. If the rider misses the confirmation deadline, or the heartbeat goes silent for 90 seconds, the claim is automatically revoked and the sub-batch goes back to the pool. No human involved, and every revoke is written to an audit table.
+
+Third, the Mid-Route Shelter Shock Rerouter. The moment a shelter's demand goes from above zero to zero while a rider is on the way there, the system finds the nearest shelter that still has demand, is dependency-compatible, and can be reached within the remaining shelf-life (with a safety buffer). The rider gets retargeted. If no such shelter exists, the sub-batch is marked at_risk and a banner tells a human to step in.
+
+TECH STACK AND HOW I WANT YOU TO WORK
+
+I'm building this in Google Antigravity, so please work the way it is meant to be used: plan first, produce a task list and an implementation plan as artifacts for me to review, then execute milestone by milestone. All commits should go through the GitHub MCP with clear messages (I've put suggested commit messages in Task.txt). No manual Git or deployment dashboards.
+
+Stack: React or Next.js with Tailwind, GSAP with MotionPathPlugin for animation, Supabase for everything backend (Postgres, Realtime, Auth with magic links, RLS, pg_cron, PostGIS), and Firebase Hosting or Cloud Run for deployment. Please pick React or Next.js yourself and tell me why in one or two lines, I don't have a strong preference.
+
+The business logic lives in the database as PL/pgSQL functions and triggers. The frontend should be a thin client that calls RPCs and listens to Realtime. Please do not move any of the three primitives into frontend code.
+
+THINGS I ALREADY SPOTTED IN MY OWN SQL (please fix these, don't copy them blindly)
+
+I wrote the first versions of the SQL quickly and I know some of it has gaps. Please review each file before using it and fix at least the following.
+
+The splitter takes the minimum vehicle capacity among idle riders. If there are no idle riders that value is NULL and everything breaks. Add a sensible default of 40.
+The splitter never reduces a shelter's current_demand or tracks what has already been allocated, so two batches can over-fill the same shelter. Please account for already-allocated sub-batch quantity.
+The Pipeline says leftover quantity should be flagged at_risk, but the SQL just inserts it as unassigned. Make the code match the documented behaviour.
+The rerouter function reads a location column from the riders table, but the riders table in the schema has no location column. Add it (and keep it updated) or find another source.
+The shelter shock trigger only marks sub-batches as at_risk, and the plan relies on the frontend to call the rerouter afterwards. That is fragile, because if the rider's app is closed nothing happens. I would like the reroute attempt to happen on the server inside or right after the trigger, with at_risk set only if find_alternative_shelter returns nothing. Write a claim_audit row with event 'rerouted' either way.
+A 60 second heartbeat against a 90 second timeout leaves very little room for a slow network. Tell me if you think the numbers should change, but keep them as the defaults unless I agree.
+When a claim is revoked, make sure no stale rider assignment or heartbeat is left behind, and check that revoked sub-batches that were already bound to a shelter behave sensibly.
+The expiry sweep should also write to claim_audit and should update the parent batch status (partially_spoiled or fully_spoiled).
+Add validate_dispatch() as described in Task.txt, so a rider cannot confirm pickup if the destination shelter has lost the water or fuel it needs.
+Write proper RLS policies. A donor must not be able to claim, a rider must not be able to edit shelter demand, and so on. Show me the policy table before you apply it.
+
+If you find other problems, list them and fix them. I would rather hear about a bug now than from a judge.
+
+THE UI AND MOTION RULES
+
+The layout is described in Design.txt. In short: a top bar with live metrics (percent spoiled, ghost revokes, split sub-batches, deliveries, reroutes), a left donor queue with nested sub-batch chips, a centre flow view with riders moving on curved paths between donors and shelters, a right shelter board with capacity bars, a rider cockpit with a heartbeat indicator, an at-risk banner, and a bottom control deck with four failure-injection buttons for the judges (simulate ghost rider, fill shelter mid-route, trigger dependency violation, force a 180-unit split).
+
+For motion I have strict rules, because I don't want it to look like a default template:
+No linear easing, no generic ease, no bounce.
+Never animate width or height, use transforms.
+Every list staggers when it enters. Nothing important should move all at once.
+The heartbeat pulse speed must reflect the actual state (time left before revoke), not just be decoration.
+The reroute animation should morph the rider's path to the new shelter, and it must be interruptible if another reroute happens mid-animation.
+Respect prefers-reduced-motion with a proper fallback.
+
+The exact timings and numbers are in Task.txt, please follow those.
+
+HOW I WOULD LIKE YOU TO REPORT BACK
+
+Go milestone by milestone in the order of Task.txt. After each milestone, give me a short summary in plain English: what you built, what you changed from my files and why, and how I can test it myself. Use simple language, I am still learning a lot of this stack, so if you use a term like RLS, RPC or Realtime channel, give me a one-line explanation the first time.
+
+Before you finish, run through the final deliverable checklist at the bottom of Task.txt and tell me honestly which items pass and which don't. Please don't claim something works unless you actually tested it, and if you can't test something, say so.
+
+ONE LAST THING
+
+If anything in my files is unclear, contradictory or impossible, ask me before building on top of it. A short question now saves both of us a lot of rework. Otherwise, go ahead and start with the plan and task list artifacts.
+
+Thanks, let's build this properly.
