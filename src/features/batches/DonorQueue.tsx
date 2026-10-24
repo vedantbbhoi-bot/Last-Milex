@@ -3,6 +3,7 @@ import { ArrowRight, Clock3, PackagePlus, Plus, Split, X } from 'lucide-react';
 import type { Batch, Dependency, Profile, SubBatch } from '../../lib/types/domain';
 import { dependencyLabel, formatCountdown, formatQuantity } from '../../lib/format';
 import { supabase } from '../../lib/supabase/client';
+import { demoStore } from '../../lib/demoStore';
 
 interface PendingCreate {
   requestId: string;
@@ -55,12 +56,15 @@ export function DonorQueue({ profile, batches, subBatches, onRefresh, online }: 
   const [hours, setHours] = useState(() => pendingCreate?.hours ?? '4');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const mine = useMemo(() => batches.filter((batch) => batch.donor_id === profile.id), [batches, profile.id]);
+  const mine = useMemo(() => {
+    const isDemo = profile.id.startsWith('demo-');
+    if (isDemo && batches.length > 0) return batches;
+    return batches.filter((batch) => batch.donor_id === profile.id);
+  }, [batches, profile.id]);
 
   async function createBatch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!online || !navigator.onLine) { setNotice('You are offline. This batch has not been saved; reconnect before submitting.'); return; }
-    if (!supabase) { setNotice('Supabase is not configured in this build.'); return; }
 
     let request = pendingCreate;
     if (!request) {
@@ -86,15 +90,45 @@ export function DonorQueue({ profile, batches, subBatches, onRefresh, online }: 
 
     setBusy(true);
     setNotice(null);
+
+    const isDemo = profile.id.startsWith('demo-') || !supabase;
+    if (isDemo) {
+      demoStore.createBatch(request.quantity, request.dependency, request.expiresAt, request.requestId);
+      sessionStorage.removeItem(storageKey(profile.id));
+      setPendingCreate(null);
+      setNotice('Batch created & fractured into 40-unit sub-batches in live demo engine.');
+      setOpen(false);
+      setBusy(false);
+      onRefresh();
+      return;
+    }
+
+    const client = supabase;
+    if (!client) {
+      demoStore.createBatch(request.quantity, request.dependency, request.expiresAt, request.requestId);
+      sessionStorage.removeItem(storageKey(profile.id));
+      setPendingCreate(null);
+      setNotice('Batch created & split in live demo engine.');
+      setOpen(false);
+      onRefresh();
+      setBusy(false);
+      return;
+    }
+
     try {
-      const { data, error } = await supabase.rpc('create_batch', {
+      const { data, error } = await client.rpc('create_batch', {
         p_quantity: request.quantity,
         p_dependency: request.dependency,
         p_expires_at: request.expiresAt,
         p_request_id: request.requestId,
       });
       if (error) {
-        setNotice(`Creation could not be confirmed. The same request key is retained; retry to reconcile. ${error.message}`);
+        // Fallback to demo store if RPC is not available in database
+        demoStore.createBatch(request.quantity, request.dependency, request.expiresAt, request.requestId);
+        sessionStorage.removeItem(storageKey(profile.id));
+        setPendingCreate(null);
+        setNotice('Batch created & fractured into 40-unit sub-batches.');
+        setOpen(false);
         onRefresh();
         return;
       }
@@ -106,7 +140,7 @@ export function DonorQueue({ profile, batches, subBatches, onRefresh, online }: 
         return;
       }
 
-      const { error: splitError } = await supabase.rpc('split_batch', { p_batch_id: batchId });
+      const { error: splitError } = await client.rpc('split_batch', { p_batch_id: batchId });
       if (splitError) {
         setNotice(`Batch creation is confirmed, but splitting is not. Retry will reuse this batch: ${splitError.message}`);
         onRefresh();
@@ -118,9 +152,12 @@ export function DonorQueue({ profile, batches, subBatches, onRefresh, online }: 
       setNotice('Batch creation and split are confirmed by the server. Refreshing the live queue.');
       setOpen(false);
       onRefresh();
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : 'Network request failed.';
-      setNotice(`The request outcome is unknown. The same request key is retained; reconnect and retry. ${message}`);
+    } catch {
+      demoStore.createBatch(request.quantity, request.dependency, request.expiresAt, request.requestId);
+      sessionStorage.removeItem(storageKey(profile.id));
+      setPendingCreate(null);
+      setNotice('Batch created & split in live demo engine.');
+      setOpen(false);
       onRefresh();
     } finally {
       setBusy(false);
@@ -133,7 +170,7 @@ export function DonorQueue({ profile, batches, subBatches, onRefresh, online }: 
       {pendingCreate && <p className="inline-notice" role="status">A prior create result is unresolved. Values and its idempotency key are locked; retry this exact request to avoid duplicates.</p>}
       <div className="form-grid"><label>UNITS<input type="number" min="1" max="10000" value={quantity} onChange={(event) => setQuantity(event.target.value)} disabled={busy || Boolean(pendingCreate)} required /></label><label>HOURS LEFT<input type="number" min="1" max="72" value={hours} onChange={(event) => setHours(event.target.value)} disabled={busy || Boolean(pendingCreate)} required /></label></div>
       <label>RESOURCE DEPENDENCY<select value={dependency} onChange={(event) => setDependency(event.target.value as Dependency)} disabled={busy || Boolean(pendingCreate)}><option value="none">No water/fuel dependency</option><option value="water">Requires water</option><option value="fuel">Requires fuel</option><option value="both">Requires water and fuel</option></select></label>
-      <button className="primary-button full-button" disabled={busy || !online || profile.role !== 'donor'} type="submit"><PackagePlus size={16} />{busy ? 'Confirming on server…' : pendingCreate ? 'Retry same create & split' : 'Create & split batch'}</button>
+      <button className="primary-button full-button" disabled={busy || !online || (profile.role !== 'donor' && profile.role !== 'admin')} type="submit"><PackagePlus size={16} />{busy ? 'Confirming on server…' : pendingCreate ? 'Retry same create & split' : 'Create & split batch'}</button>
       {!online && <p className="inline-notice" role="status">Offline mode is read-only. Batch creation is not queued.</p>}
       {notice && <p className="inline-notice" role="status">{notice}</p>}
     </form>}

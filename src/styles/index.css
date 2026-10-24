@@ -264,6 +264,38 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .password-dialog .auth-card { width: 100%; max-width: none; }
 .password-close { position: absolute; z-index: 2; top: 12px; right: 12px; }
 
+/* Demo & Judge Mode Enhancements */
+.demo-mode-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px; background: rgba(225,92,67,.12); color: var(--coral-deep); border: 1px solid rgba(225,92,67,.3); border-radius: 4px; font: 700 9px/1 var(--mono); letter-spacing: .08em; margin-left: 6px; }
+.role-switcher-nav { display: flex; align-items: center; gap: 6px; background: rgba(23,35,31,.04); padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; margin: 0 12px; }
+.role-switcher-label { font: 8px var(--mono); color: #787e74; letter-spacing: .08em; margin-right: 2px; }
+.role-tab { border: 1px solid transparent; background: transparent; padding: 4px 9px; font-size: 11px; font-weight: 600; color: var(--ink-soft); border-radius: 4px; cursor: pointer; transition: all 120ms ease; display: inline-flex; align-items: center; gap: 4px; }
+.role-tab:hover { background: rgba(250,248,242,.9); color: var(--ink); border-color: var(--line); }
+.role-tab.active { background: var(--ink); color: var(--paper-light); border-color: var(--ink); box-shadow: 0 1px 3px rgba(23,35,31,.15); }
+
+.scenario-feedback-banner { margin-top: 10px; padding: 10px 14px; border-radius: 4px; display: flex; align-items: flex-start; gap: 9px; font-size: 11px; line-height: 1.5; font-family: var(--mono); }
+.scenario-feedback-banner.is-success { background: #dce8dd; color: #1e523e; border: 1px solid #b7d6bc; }
+.scenario-feedback-banner.is-error { background: #f8e4dc; color: #9e3e32; border: 1px solid #eac1b1; }
+
+.demo-access-card { margin-top: 16px; padding: 14px; background: rgba(255,255,255,.75); border: 1px solid #d4cfbe; border-radius: 6px; box-shadow: 0 2px 6px rgba(23,35,31,.03); }
+.demo-access-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
+.demo-access-badge { display: inline-flex; align-items: center; gap: 5px; font: 700 9px var(--mono); color: var(--moss); letter-spacing: .08em; background: rgba(45,106,83,.1); padding: 3px 6px; border-radius: 3px; }
+.demo-access-hint { font: 8px var(--mono); color: #858980; }
+.demo-access-subtitle { margin: 4px 0 10px; font-size: 11px; color: #6a7168; line-height: 1.4; }
+.demo-quick-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; }
+.demo-launch-btn { text-align: left; padding: 9px 10px; background: #faf8f2; border: 1px solid #d9d6cb; border-radius: 4px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; transition: all 120ms ease; }
+.demo-launch-btn:hover:not(:disabled) { background: #fff; border-color: var(--ink); transform: translateY(-1px); box-shadow: 0 2px 5px rgba(23,35,31,.08); }
+.demo-launch-btn:active:not(:disabled) { transform: translateY(0); }
+.demo-btn-title { font-size: 11px; font-weight: 700; color: var(--ink); }
+.demo-btn-email { font: 8px var(--mono); color: #7f847b; }
+.demo-launch-btn.demo-role-admin { border-left: 3px solid var(--coral); }
+.demo-launch-btn.demo-role-donor { border-left: 3px solid var(--amber); }
+.demo-launch-btn.demo-role-rider { border-left: 3px solid var(--moss); }
+.demo-launch-btn.demo-role-shelter { border-left: 3px solid var(--blue); }
+
+.auth-divider { display: flex; align-items: center; gap: 12px; margin: 18px 0 10px; }
+.auth-divider::before, .auth-divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.auth-divider span { font: 8px var(--mono); color: #8a8e84; letter-spacing: .1em; white-space: nowrap; }
+
 @media (max-width: 1160px) {
   .workbench { grid-template-columns: minmax(230px, .85fr) minmax(400px, 1.35fr); }
   .right-rail { grid-column: 1 / -1; grid-template-columns: minmax(0, 1.5fr) minmax(220px, .8fr); }
@@ -275,6 +307,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
   .topbar { height: 55px; padding: 0 14px; }
   .connection-status-banner { top: 55px; }
   .brand-sub, .brand-divider, .user-name { display: none; }
+  .role-switcher-nav { margin: 0 4px; padding: 2px 4px; gap: 3px; }
+  .role-switcher-label { display: none; }
+  .role-tab { padding: 3px 6px; font-size: 9px; }
+  .demo-quick-grid { grid-template-columns: 1fr; }
   .topbar-right { gap: 8px; }
   .dashboard-content { padding: 21px 13px 16px; }
   .welcome-line { align-items: flex-start; flex-direction: column; margin-bottom: 14px; }

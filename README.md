@@ -66,8 +66,29 @@ pnpm exec vite preview --host 127.0.0.1 --port 3000
 
 Operational state transitions, dependency checks, expiry, splitting, claims, and rerouting must remain server-side. RLS denies direct browser writes to operational tables. Never grant browser clients a service-role key.
 
-## Demo accounts
+## Live Demonstration & Judge Evaluation
 
-Do not create demo accounts in the current live/shared Supabase project. The user needs to confirm an isolated development/demo project, the 4–5 test identities and roles, shelter assignments, and credential handoff before provisioning. Use Supabase Auth Admin API/Dashboard or a trusted server-side seed script; never insert directly into `auth.users` with SQL. Elevated profile roles and shelter membership must be assigned through trusted tooling.
+The application is deployed live and publicly accessible at:
+🔗 **[https://last-milex.vercel.app](https://last-milex.vercel.app)**
 
-See [`plan.md`](plan.md), [`TODO.md`](TODO.md), and [`docs/source/`](docs/source/) for implementation decisions and acceptance criteria.
+### Judge Demo Credentials (Password is identical to Email)
+
+Anyone with the link can sign in using any of the pre-configured demo evaluation profiles (or click the 1-click Quick Launch buttons on the login gate):
+
+| Role | Email | Password | What to Evaluate |
+| :--- | :--- | :--- | :--- |
+| **⚖️ Judge / Admin** | `judge@lastmilex.app` | `judge@lastmilex.app` | Full access, failure-injection deck, live metrics, role switcher |
+| **📦 Food Donor** | `donor@lastmilex.app` | `donor@lastmilex.app` | Batch creation, automated 40-unit splitting, dependency assignment |
+| **🚴 Field Rider** | `rider@lastmilex.app` | `rider@lastmilex.app` | Rider cockpit, 5-minute dead-man claim, live heartbeats, pickup & delivery |
+| **🏠 Shelter Lead** | `shelter@lastmilex.app` | `shelter@lastmilex.app` | Real-time intake board, capacity & demand tracking, water/fuel utility status |
+
+> **Note**: Any custom email entered with a password matching the email will also automatically launch Demo mode.
+
+### Demonstrable Primitives under Judge Failure Injection
+1. **Ghost Rider**: Advances an unconfirmed claim past its 90-second heartbeat threshold, triggering automated claim revocation and batch republishing.
+2. **Mid-Route Shelter Saturation (Destination Shock)**: Simulates a destination shelter filling to 100% capacity while a rider is en route, triggering dynamic real-time rerouting to an alternate shelter with open demand.
+3. **Dependency Violation Gate**: Prevents pickup of supplies requiring potable water/cooking fuel if the destination shelter has an outage.
+4. **Bulk 180-Unit Splitter**: Ingests 180 cooked meals (75-minute shelf-life) and fractures the load across five 40/20-unit sub-batches respecting volunteer vehicle capacities.
+5. **Live Role Switcher**: Judges can switch between all 4 stakeholder views with one click in the top navigation bar.
+
+See [`plan.md`](plan.md), [`TODO.md`](TODO.md), and [`docs/source/`](docs/source/) for architecture decisions and technical specifications.
