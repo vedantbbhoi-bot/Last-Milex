@@ -1,0 +1,78 @@
+
+## Component Stack
+
+| Layer | Technology | Production Justification |
+|-------|-----------|--------------------------|
+| **Frontend** | React or Next.js (Antigravity natively supports both) | Antigravity can scaffold and manage the full app[reference:10]. |
+| **Animation** | GSAP + `MotionPathPlugin` | Curved, interruptible route animation; anti-slop guarantees[reference:11]. |
+| **Backend** | Supabase (PostgreSQL + Realtime + Auth) | Full-stack backend with Realtime and RLS; free tier adequate for demo-scale production. |
+| **Auth** | Supabase Auth (magic link) | Roles: `donor`, `rider`, `shelter`, `admin`. |
+| **Splitter Engine** | Supabase RPC (`split_batch`) in PL/pgSQL | Deterministic, atomic splitting under constraints; no client trust. |
+| **Heartbeat Engine** | `sub_batches.heartbeat_at` + `pg_cron` sweep | Server-side dead-man's timer; client heartbeat is advisory only. |
+| **Rerouter Engine** | PostgreSQL trigger + `find_alternative_shelter` RPC (PostGIS) | Deterministic fallback within remaining shelf-life. |
+| **Deployment** | Firebase Hosting or Google Cloud Run | Antigravity provisions and deploys natively[reference:12][reference:13]. |
+| **Version Control** | GitHub MCP via Antigravity | Agents create commits and PRs autonomously[reference:14]. |
+
+## Backend Schema (PostgreSQL)
+
+```sql
+CREATE TABLE profiles (
+  id UUID REFERENCES auth.users PRIMARY KEY,
+  role TEXT CHECK (role IN ('donor','rider','shelter','admin')) NOT NULL,
+  display_name TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE shelters (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  capacity INTEGER NOT NULL,
+  current_demand INTEGER NOT NULL DEFAULT 0,
+  resources JSONB DEFAULT '{"water": true, "fuel": true}'::jsonb,
+  location GEOGRAPHY(POINT, 4326)
+);
+
+CREATE TABLE riders (
+  id UUID REFERENCES profiles(id) PRIMARY KEY,
+  status TEXT CHECK (status IN ('idle','en_route','unresponsive')) DEFAULT 'idle',
+  vehicle_capacity INTEGER DEFAULT 40,
+  last_heartbeat_at TIMESTAMPTZ
+);
+
+CREATE TABLE batches (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  donor_id UUID REFERENCES profiles(id) NOT NULL,
+  total_quantity INTEGER NOT NULL CHECK (total_quantity > 0),
+  dependency TEXT CHECK (dependency IN ('none','water','fuel','both')) DEFAULT 'none',
+  expires_at TIMESTAMPTZ NOT NULL,
+  status TEXT CHECK (status IN ('pending_split','split_complete','fully_dispatched','partially_spoiled','fully_spoiled')) DEFAULT 'pending_split',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE sub_batches (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  parent_batch_id UUID REFERENCES batches(id) ON DELETE CASCADE NOT NULL,
+  quantity INTEGER NOT NULL CHECK (quantity > 0 AND quantity <= 40),
+  dependency TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  status TEXT CHECK (status IN ('unassigned','claimed','confirmed','in_transit','delivered','spoiled','at_risk')) DEFAULT 'unassigned',
+  assigned_rider_id UUID REFERENCES riders(id),
+  assigned_shelter_id UUID REFERENCES shelters(id),
+  claimed_at TIMESTAMPTZ,
+  confirmation_deadline TIMESTAMPTZ,
+  heartbeat_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE claim_audit (
+  id BIGSERIAL PRIMARY KEY,
+  sub_batch_id UUID REFERENCES sub_batches(id),
+  event TEXT CHECK (event IN ('claimed','heartbeat','dead_man_revoked','confirmed','rerouted','delivered','spoiled')),
+  metadata JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER PUBLICATION supabase_realtime ADD TABLE batches;
+ALTER PUBLICATION supabase_realtime ADD TABLE sub_batches;
+ALTER PUBLICATION supabase_realtime ADD TABLE riders;
+ALTER PUBLICATION supabase_realtime ADD TABLE shelters;

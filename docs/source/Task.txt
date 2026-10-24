@@ -1,0 +1,116 @@
+
+---
+
+## FILE 5: `TASKS.md`
+
+```markdown
+# Tasks: Antigravity Execution Plan (Production-Ready)
+
+**Rule:** All code, commits, and deployments are executed through **Google Antigravity**. Agents plan in task groups, produce artifacts for review, and commit via GitHub MCP[reference:17][reference:18]. No external Git client or manual deployment dashboard is required.
+
+## Milestone 0: Supabase Project + Scaffold
+
+| Step | Action | Antigravity Workflow | Commit Message |
+|------|--------|----------------------|----------------|
+| 0.1 | Create Supabase project; store URL + anon key. | Agent provisions via MCP / API; writes env config. | `chore: add Supabase project config` |
+| 0.2 | Scaffold React or Next.js frontend with Tailwind, GSAP, Supabase JS. | Agent generates files in workspace. | `chore: scaffold frontend` |
+| 0.3 | Initialize Git repo and connect GitHub MCP. | Agent creates repo via MCP; configures PAT with Administration + PR write permissions[reference:19]. | `chore: initialize repository` |
+
+## Milestone 1: Database Schema + RLS
+
+| Step | Action | Antigravity Workflow | Commit Message |
+|------|--------|----------------------|----------------|
+| 1.1 | Write `001_schema.sql` (profiles, riders, shelters, batches, sub_batches, claim_audit). | Agent creates migration file. | `feat: add core schema with sub_batches` |
+| 1.2 | Enable RLS policies for each role. | Agent generates `002_rls.sql`. | `feat: add row-level security` |
+| 1.3 | Add triggers: dependency enforcement, shelter shock rerouter. | Agent generates `003_triggers.sql`. | `feat: add coordination triggers` |
+| 1.4 | Apply migrations to Supabase. | Agent runs `supabase db push` via terminal. | `deploy: apply schema migrations` |
+
+## Milestone 2: Dynamic Batch Splitter
+
+| Step | Action | Antigravity Workflow | Commit Message |
+|------|--------|----------------------|----------------|
+| 2.1 | Implement `split_batch()` RPC. | Agent writes SQL in migration. | `feat: add dynamic batch splitter RPC` |
+| 2.2 | Donor UI: create parent batch → call `split_batch` → render sub-batch chips. | Agent generates JSX + RPC call. | `feat: donor split flow` |
+| 2.3 | Sub-batch fan-out stagger animation (40ms, Y-offset 6px). | Agent writes GSAP stagger. | `style: sub-batch stagger entrance` |
+
+## Milestone 3: Auth + Realtime Panels
+
+| Step | Action | Antigravity Workflow | Commit Message |
+|------|--------|----------------------|----------------|
+| 3.1 | Supabase Auth magic link + role gating. | Agent writes auth modal and session state. | `feat: add auth and role gating` |
+| 3.2 | Realtime subscriptions on `batches`, `sub_batches`, `riders`, `shelters`. | Agent adds Supabase channels. | `feat: add realtime subscriptions` |
+| 3.3 | Shelter Board with capacity bars and resource badges. | Agent generates JSX + realtime updates. | `feat: shelter board` |
+| 3.4 | Metrics bar with GSAP spring counters. | Agent writes count-up animation. | `feat: animated metrics bar` |
+
+## Milestone 4: Claim + Heartbeat + Dead-Man's Sweep
+
+| Step | Action | Antigravity Workflow | Commit Message |
+|------|--------|----------------------|----------------|
+| 4.1 | Claim RPC: set `claimed_at`, `confirmation_deadline = NOW()+5min`, `heartbeat_at = NOW()`. | Agent writes `005_claims.sql`. | `feat: add claim RPC with deadlines` |
+| 4.2 | Frontend heartbeat sender: 60s loop while rider holds claim. | Agent writes `setInterval` + `supabase.rpc('heartbeat')`. | `feat: rider heartbeat sender` |
+| 4.3 | `dead_man_sweep()` RPC: revoke on missed heartbeat (90s) or confirmation deadline (5 min). | Agent writes `006_dead_man.sql`. | `feat: dead-man sweep RPC` |
+| 4.4 | Enable `pg_cron` to run `dead_man_sweep()` every 30s. Backup: scheduled workflow. | Agent configures cron via SQL + workflow file. | `feat: schedule dead-man sweep` |
+| 4.5 | Rider cockpit UI with heartbeat indicator (color-coded pulse). | Agent writes JSX + GSAP. | `feat: rider cockpit heartbeat UI` |
+| 4.6 | Revoked sub-batch returns to pool with desaturate-slide animation. | Agent writes GSAP `power2.in`, 240ms. | `style: revocation return animation` |
+
+## Milestone 5: Mid-Route Rerouter
+
+| Step | Action | Antigravity Workflow | Commit Message |
+|------|--------|----------------------|----------------|
+| 5.1 | `find_alternative_shelter()` RPC with PostGIS distance + shelf-life feasibility. | Agent writes `007_rerouter.sql`. | `feat: rerouter RPC` |
+| 5.2 | Trigger `shelter_shock` on `current_demand` 0-flip → set matching sub-batches to `at_risk`. | Agent adds trigger in same migration. | `feat: shelter shock trigger` |
+| 5.3 | Frontend: on `at_risk` Realtime event, call rerouter RPC, update `assigned_shelter_id`. | Agent writes client handler. | `feat: client reroute handler` |
+| 5.4 | MotionPath morph to new shelter (curviness 0.45, autoRotate, 700ms, `overwrite: 'auto'`). Old path fades. | Agent writes GSAP `motionPath`. | `feat: animate reroute deflection` |
+| 5.5 | At-risk banner for no-fallback case. | Agent adds JSX + Realtime subscription. | `feat: at-risk fallback banner` |
+
+## Milestone 6: Expiry + Dependency Gate
+
+| Step | Action | Antigravity Workflow | Commit Message |
+|------|--------|----------------------|----------------|
+| 6.1 | Scheduled expiry sweep (every 1 min) marks spoiled. | Agent writes cron workflow. | `feat: expiry sweep cron` |
+| 6.2 | `validate_dispatch()` RPC re-checks shelter resources pre-pickup. | Agent writes `008_validate.sql`. | `feat: dispatch validation RPC` |
+| 6.3 | Frontend: block Confirm Pickup on failed validation, surface inline reason. | Agent writes gate UI. | `feat: dependency gate UI` |
+
+## Milestone 7: Failure Injection Controls
+
+| Step | Action | Antigravity Workflow | Commit Message |
+|------|--------|----------------------|----------------|
+| 7.1 | "Simulate Ghost Rider": claim then halt heartbeat. | Agent writes frontend action + audit. | `feat: ghost injection` |
+| 7.2 | "Fill Shelter Mid-Route": set shelter demand = 0. | Agent writes update; trigger fires. | `feat: mid-route fill injection` |
+| 7.3 | "Trigger Dependency Violation": call `validate_dispatch` on incompatible shelter. | Agent writes frontend + audit. | `feat: dependency violation injection` |
+| 7.4 | "Force Batch Split": create 180-unit parent; splitter runs. | Agent writes frontend + RPC. | `feat: force-split injection` |
+| 7.5 | Button press-down micro-interaction (80ms, ease-out). | Agent writes CSS/GSAP. | `style: button micro-interactions` |
+
+## Milestone 8: Motion Audit + Anti-Slop Enforcement
+
+| Step | Action | Antigravity Workflow | Commit Message |
+|------|--------|----------------------|----------------|
+| 8.1 | Search codebase for `linear`, `ease`, `bounce`, `width`-animations; fix violations. | Agent greps and refactors. | `style: pass anti-slop motion audit` |
+| 8.2 | Verify every list staggers (sub-batches, shelters, riders). | Agent audits GSAP calls. | `style: enforce stagger` |
+| 8.3 | Heartbeat pulse rate tied to remaining confirmation time. | Agent recalculates timeline on each tick. | `style: heartbeat pulse state-driven` |
+| 8.4 | `prefers-reduced-motion` fallback. | Agent adds `gsap.matchMedia()`. | `style: respect reduced motion` |
+| 8.5 | Verify reroute morph is interruptible and correct. | Agent uses browser walkthrough artifact to verify[reference:20]. | `test: verify reroute morph` |
+
+## Milestone 9: Deploy via Antigravity
+
+| Step | Action | Antigravity Workflow | Commit Message |
+|------|--------|----------------------|----------------|
+| 9.1 | Provision Firebase Hosting (or Cloud Run) via Antigravity's native integration. | Agent selects Firebase/Cloud Run; provisions via MCP[reference:21][reference:22]. | `deploy: provision hosting` |
+| 9.2 | Configure build and deploy. | Agent runs build; deploys via Antigravity one-click / `gcloud`. | `deploy: publish frontend` |
+| 9.3 | Daily keep-alive ping to Supabase. | Agent writes cron workflow. | `chore: Supabase keep-alive` |
+| 9.4 | Verify live URL + backend response. | Agent curls URLs; captures screenshot artifact. | `test: verify deployment` |
+
+## Final Deliverable Checklist
+
+- [ ] Live URL loads authenticated SPA.
+- [ ] Supabase backend live with RLS, triggers, and three RPC primitives.
+- [ ] **Splitter**: 180-unit batch fractures into ≤40-unit sub-batches bound to compatible shelters.
+- [ ] **Heartbeat**: rider sends 60s heartbeats; dead-man sweep auto-revokes within 90s of silence or at 5-min confirmation deadline.
+- [ ] **Rerouter**: shelter demand zero-flip triggers `at_risk` → RPC → MotionPath morph → audit row.
+- [ ] All four failure-injection buttons functional.
+- [ ] No `linear`/`ease`/`bounce` transitions.
+- [ ] Every entrance staggers; no simultaneous motion.
+- [ ] Heartbeat pulse rate is state-driven, not decorative.
+- [ ] `prefers-reduced-motion` fallback works.
+- [ ] Every commit made through Antigravity's GitHub MCP with a clear message.
+- [ ] Artifacts (task lists, implementation plans, walkthroughs) preserved for review[reference:23].

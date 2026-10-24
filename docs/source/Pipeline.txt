@@ -1,0 +1,64 @@
+
+---
+
+## FILE 3: `PIPELINE.md`
+
+```markdown
+# Pipeline: End-to-End Coordination with Server-Enforced Primitives
+
+The pipeline runs across three layers: **Browser (UI + Realtime + Heartbeat)** → **Supabase (PostgreSQL + RPC + Triggers)** → **Scheduler (pg_cron / GitHub Actions)**.
+
+## Stage 0: Authenticated Session
+
+- Donor, rider, or shelter signs in via Supabase Auth (magic link).
+- Role from `profiles` gates the UI. RLS guarantees a donor cannot claim, a rider cannot edit shelter demand, etc.
+
+## Stage 1: Dynamic Batch Splitter & Constraint Matcher
+
+1. Donor creates a **parent batch**: `{ total_quantity: 180, dependency: 'water', expires_at: NOW()+75min }`.
+2. Frontend immediately calls the `split_batch(p_batch_id)` RPC.
+3. The splitter is **deterministic and atomic**:
+   - Reads the **minimum vehicle capacity** among idle riders (e.g., 40).
+   - Iterates shelters by remaining demand, creating sub-batches of `LEAST(vehicle_cap, shelter_demand, remaining)`.
+   - Enforces the **dependency tag** during iteration — incompatible shelters are skipped.
+   - Any leftover (no compatible shelter capacity) becomes an `unassigned` sub-batch flagged `at_risk`.
+4. Supabase Realtime broadcasts **each sub-batch** to all clients. The Donor Queue shows the parent batch with **nested sub-batch chips** that stagger-enter (40ms each).
+5. Every sub-batch carries its own `expires_at` inherited from the parent — hard-bounded by the donor’s shelf-life claim.
+
+**Judges can test this by** creating a batch of `180 units / water / 75min` and observing five 40-unit sub-batches appear bound to specific shelters, or fewer if shelter capacity is smaller.
+
+## Stage 2: Claim + Heartbeat & Dead-Man's Timeout
+
+1. A rider claims a sub-batch: `UPDATE sub_batches SET status='claimed', assigned_rider_id=auth.uid(), claimed_at=NOW(), confirmation_deadline=NOW()+INTERVAL '5 minutes', heartbeat_at=NOW() WHERE id=$1 AND status='unassigned'`.
+2. The rider client begins a **60-second heartbeat loop**: `supabase.rpc('heartbeat', { p_sub_batch_id })`.
+3. Two revoke conditions, both server-enforced:
+   - **Confirmation miss**: `NOW() > confirmation_deadline` → revoke (rider never marked "picked up").
+   - **Heartbeat miss**: `heartbeat_at < NOW() - 90s` → revoke (rider went unresponsive even after confirming).
+4. The sweep (`dead_man_sweep()`) runs **every 30 seconds** via `pg_cron` (primary) and via a scheduled workflow (backup). It **auto-revokes** and re-publishes the sub-batch — no human intervention.
+5. Each revocation writes to `claim_audit` for the judges' audit trail.
+
+**Judges can test this by** clicking "Simulate Ghost Rider" (which claims and then stops heartbeating) and watching the batch auto-republish within 90 seconds.
+
+## Stage 3: Mid-Route Shelter Shock Rerouter
+
+1. Rider confirms pickup → `status='confirmed'`, then `status='in_transit'`.
+2. The rider client subscribes to Realtime changes on `shelters` where `id = assigned_shelter_id`.
+3. A **PostgreSQL trigger** on `shelters` fires when `current_demand` flips from `>0` to `0`:
+
+```sql
+CREATE OR REPLACE FUNCTION trigger_rerouter()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF OLD.current_demand > 0 AND NEW.current_demand = 0 THEN
+    UPDATE sub_batches
+    SET status = 'at_risk'
+    WHERE assigned_shelter_id = NEW.id
+      AND status IN ('confirmed','in_transit');
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER shelter_shock
+AFTER UPDATE OF current_demand ON shelters
+FOR EACH ROW EXECUTE FUNCTION trigger_rerouter();
