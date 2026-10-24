@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '../../lib/supabase/client';
 
+const MIN_PASSWORD_LENGTH = 8;
+
 export function useAuth() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(Boolean(supabase));
@@ -30,18 +32,33 @@ export function useAuth() {
     };
   }, []);
 
-  async function signInWithMagicLink(email: string) {
+  async function signInWithPassword(email: string, password: string) {
     setError(null);
     if (!supabase) {
       setError('Supabase client configuration is missing. Add the project URL and publishable key.');
       return { ok: false };
     }
-    const { error: signInError } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: window.location.origin },
-    });
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
     if (signInError) {
       setError(signInError.message);
+      return { ok: false };
+    }
+    return { ok: true };
+  }
+
+  async function setPassword(password: string) {
+    setError(null);
+    if (!supabase) {
+      setError('Supabase client configuration is missing. Add the project URL and publishable key.');
+      return { ok: false };
+    }
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`);
+      return { ok: false };
+    }
+    const { error: updateError } = await supabase.auth.updateUser({ password });
+    if (updateError) {
+      setError(updateError.message);
       return { ok: false };
     }
     return { ok: true };
@@ -53,5 +70,5 @@ export function useAuth() {
     if (signOutError) setError(signOutError.message);
   }
 
-  return { session, loading, error, setError, signInWithMagicLink, signOut };
+  return { session, loading, error, setError, signInWithPassword, setPassword, signOut };
 }
