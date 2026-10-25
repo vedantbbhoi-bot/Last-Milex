@@ -1,0 +1,1176 @@
+diff --git a/.env.example b/.env.example
+index c6a22749f67a405dc823b76fb733133bc3ea0749..b81ffa7473b858f81acc8fd8247509eb72a78db1 100644
+--- a/.env.example
++++ b/.env.example
+@@ -1,2 +1,6 @@
+ VITE_SUPABASE_URL=https://your-project.supabase.co
+ VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_key
++
++# Initial no-key demo basemap. Change both values together for another tile provider.
++VITE_MAP_TILE_URL=https://tile.openstreetmap.org/{z}/{x}/{y}.png
++VITE_MAP_ATTRIBUTION='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>'
+diff --git a/README.md b/README.md
+index 57885661eb21421bab2c14a111717c2f655ca133..54debf41ba5e5087f357361780887a9371abbc5d 100644
+--- a/README.md
++++ b/README.md
+@@ -1,18 +1,16 @@
+-# Last-Mile Spoilage Trap
++# Last-Milex
+ 
+-A realtime coordination board for moving perishable donations from donors through volunteer riders to shelters before expiry. The UI is a React + Vite single-page app; Supabase Postgres owns operational state and business rules.
++A realtime coordination board for moving perishable donations from donors through volunteer riders to shelters before expiry. The application is a React + Vite single-page app; Supabase Postgres owns operational state and business rules.
+ 
+ ## Current status
+ 
+-The project is available in `vedantbbhoi-bot/Last-Milex` and is deployed at [last-milex.vercel.app](https://last-milex.vercel.app). The browser-safe Supabase variables were added to Vercel Production and a fresh baseline deployment was verified. The core Supabase schema and RLS migrations were applied to the current live project on the user's explicit instruction.
++The public Vercel site is [last-milex.vercel.app](https://last-milex.vercel.app). The latest verified production deployment was built from `main` commit `3c9908e`. Supabase core schema/RLS, dispatch coordination functions/triggers, and separate dead-man/expiry `pg_cron` jobs were applied to the live project on 2026-10-24. Both scheduled jobs have successful runs recorded. This is not a substitute for end-to-end testing with isolated dispatch fixtures.
+ 
+-The application is still not end-to-end complete: coordination RPCs/triggers for splitting, claims, heartbeat, pickup, delivery, expiry, and rerouting are not yet approved or applied. The current local work adds email/password sign-in and a signed-in password setup path, plus a static-shell offline PWA and clearer connection status. These source changes are not deployed. No demo accounts have been created.
+-
+-The coordination SQL migration is **draft-only** under the user's instruction. Do not apply it to the live database. Do not push to the production branch or trigger a Vercel deployment until separately approved.
++The local `feature/real-geographic-map` branch now contains the real Leaflet map and data-linking changes; those changes are not deployed. No Supabase migration or GPS collection is part of the map work.
+ 
+ ## Local development
+ 
+-Requirements: **Node.js 20 or later** and **pnpm 11.25.0** (pinned in `package.json`). From a fresh working copy:
++Requirements: Node.js 20 or later and pnpm 11.25.0. From a fresh working copy:
+ 
+ ```sh
+ corepack enable
+@@ -21,24 +19,45 @@ pnpm install --frozen-lockfile
+ cp .env.example .env.local
+ ```
+ 
+-On PowerShell, use `Copy-Item .env.example .env.local` for the copy step. Set only the browser-safe project URL and publishable key in `.env.local`:
++Set only browser-safe Supabase URL/publishable key plus optional public map tile URL/attribution in `.env.local`:
+ 
+ ```dotenv
+ VITE_SUPABASE_URL=https://your-project.supabase.co
+ VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_key
++VITE_MAP_TILE_URL=https://tile.openstreetmap.org/{z}/{x}/{y}.png
++VITE_MAP_ATTRIBUTION='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>'
+ ```
+ 
+-Run the Vite server with `pnpm dev` and open [http://localhost:3000](http://localhost:3000). Never put a Supabase `service_role` or other secret key in a `VITE_*` variable, browser code, or Git. Keep `.env.local` private; `.gitignore` excludes it.
++Never place a Supabase `service_role` key or other server secret in a `VITE_*` variable, browser code, or Git. Keep `.env.local` private; `.gitignore` excludes it. Start the app with `pnpm dev` and open the local Vite URL.
++
++## Geographic map and location data
++
++The geographic map uses saved shelter and rider coordinates from the selected data source. In public Judge Demo mode, these are static San Francisco fixture coordinates stored in the browser demo store. With a real Supabase session, marker positions come from the database's last-saved latitude/longitude values. The current rider-presence RPC updates heartbeat/status only; the app does not request browser geolocation or claim that rider markers are live GPS.
++
++Lines between an active rider and shelter are direct visual links, not road routes, navigation, or ETA. If either coordinate is missing or invalid, no route line is drawn. Map tiles require network access; the static PWA shell may load offline, but third-party basemap tiles are neither prefetched nor cached, and saved markers can only remain visible from the in-memory dashboard snapshot. The map shows a tile-unavailable/offline notice rather than promising offline map coverage.
++
++The default raster basemap is OpenStreetMap's standard tile service and displays visible `© OpenStreetMap contributors` attribution. It is best-effort with no availability SLA and its policy prohibits offline tile downloads. For higher-volume flood-response operations, switch `VITE_MAP_TILE_URL` and `VITE_MAP_ATTRIBUTION` together to a provider/self-hosted service with appropriate availability and explicit offline rights. See [`docs/reference/map-tiles.md`](docs/reference/map-tiles.md).
+ 
+ ## Authentication and low connectivity
+ 
+-The local sign-in gate uses email and password; signing in does not send a sign-in email. There is no public sign-up or client-selected role. An existing magic-link user should use the **Set or change password** control while a valid session is still active; it calls `updateUser` on the existing Auth identity. If that session is gone, recovery normally requires an email-based password reset, which is separate from sign-in. The separately requested project Auth email-send limit of 30 messages/hour has not been changed: the connected Supabase tools expose no Auth-settings write operation, and SQL is not an appropriate way to change it. See [`docs/reference/supabase-password-auth.md`](docs/reference/supabase-password-auth.md).
++Routine email/password sign-in sends no sign-in email. The public Judge Demo profiles below are mock-only and do not create Supabase Auth identities or mutate the production database. A custom demo login where password equals email also enters mock demo mode; do not treat that as real authentication.
+ 
+-The service worker caches the static app shell and same-origin Vite assets only; after a short navigation timeout it falls back to the cached shell. It does not cache Supabase/Auth/API responses or operational records. The dashboard keeps its last successful snapshot in memory while the tab remains open and marks it stale/offline; no persistent offline data cache is enabled. A donor's uncertain online create stores only the exact request payload and idempotency key in `sessionStorage` until both create and split are confirmed. It is not an offline queue. Claims, pickup, delivery, rider presence, and heartbeats require an online, refreshed view and server confirmation; failed heartbeats are never replayed.
++The service worker caches the static app shell and same-origin Vite assets only. It does not cache Supabase/Auth/API responses, operational rows, or third-party map tiles. Dashboard rows can remain in memory while the tab stays open and are marked stale/offline; persistent offline data storage is disabled. Dispatch actions require online/fresh server state, and failed heartbeats are never replayed.
+ 
+-The RPC migration does not activate recurring jobs. A separate opt-in draft, [`20261024132001_dispatch_sweep_schedules_draft.sql`](supabase/migrations/20261024132001_dispatch_sweep_schedules_draft.sql), creates a 30-second dead-man job and a once-per-minute expiry job using `pg_cron`; applying it creates persistent data-mutating schedules and requires separate review/authorization. See [`docs/reference/supabase-cron.md`](docs/reference/supabase-cron.md).
++## Judge demo profiles
+ 
+-## Checks and production preview
++Use a quick-launch profile on the public login gate, or enter the matching address in both email and password. These are client-side demo identities, **not real Supabase accounts**:
++
++| Role | Demo email and password |
++|---|---|
++| Judge / Admin | `judge@lastmilex.app` |
++| Food Donor | `donor@lastmilex.app` |
++| Field Rider | `rider@lastmilex.app` |
++| Shelter Lead | `shelter@lastmilex.app` |
++
++The demo role switcher and failure-injection scenarios operate on local demo state. The separate user-approved Supabase test accounts are not created by this feature.
++
++## Checks
+ 
+ ```sh
+ pnpm test
+@@ -46,49 +65,18 @@ pnpm run typecheck
+ pnpm run build
+ ```
+ 
+-Preview a built bundle locally with:
+-
+-```sh
+-pnpm exec vite preview --host 127.0.0.1 --port 3000
+-```
+-
+ ## Architecture and security
+ 
+-- `src/features/auth`: password sign-in, signed-in password setup, session boundary, and RLS-scoped dashboard reads.
+-- `src/features/batches`: donor batch creation/splitting controls; database RPCs own operational writes.
++- `src/features/auth`: password sign-in, session boundary, and dashboard reads.
++- `src/features/batches`: donor batch create/split controls; database RPCs own operational writes.
+ - `src/features/claims`: rider claim, heartbeat, pickup, and delivery controls; state transitions remain server-authoritative.
+-- `src/lib/useConnectivity.ts` and `public/sw.js`: browser network hint and static-shell offline support; no operational-data service-worker caching.
+-- `src/features/routing`: SVG dispatch routes and interruptible GSAP MotionPath animation.
+-- `src/features/judge`: admin-only failure-injection controls.
++- `src/features/routing`: Leaflet basemap, saved-coordinate markers, active-assignment links, and map geometry helpers.
++- `src/lib/useConnectivity.ts` and `public/sw.js`: connectivity hints and static-shell support; no operational-data or basemap tile caching.
++- `src/features/judge`: demo-only failure-injection controls.
+ - `src/components`: connection status, metrics, shelter board, header, and at-risk banner.
+-- `supabase/migrations`: applied core schema/RLS baseline and draft-only coordination SQL.
+-- `docs/source`: supplied problem/design/pipeline/task documents; `plan.md` and `TODO.md` track current integration status.
+-
+-Operational state transitions, dependency checks, expiry, splitting, claims, and rerouting must remain server-side. RLS denies direct browser writes to operational tables. Never grant browser clients a service-role key.
+-
+-## Live Demonstration & Judge Evaluation
+-
+-The application is deployed live and publicly accessible at:
+-🔗 **[https://last-milex.vercel.app](https://last-milex.vercel.app)**
+-
+-### Judge Demo Credentials (Password is identical to Email)
+-
+-Anyone with the link can sign in using any of the pre-configured demo evaluation profiles (or click the 1-click Quick Launch buttons on the login gate):
+-
+-| Role | Email | Password | What to Evaluate |
+-| :--- | :--- | :--- | :--- |
+-| **⚖️ Judge / Admin** | `judge@lastmilex.app` | `judge@lastmilex.app` | Full access, failure-injection deck, live metrics, role switcher |
+-| **📦 Food Donor** | `donor@lastmilex.app` | `donor@lastmilex.app` | Batch creation, automated 40-unit splitting, dependency assignment |
+-| **🚴 Field Rider** | `rider@lastmilex.app` | `rider@lastmilex.app` | Rider cockpit, 5-minute dead-man claim, live heartbeats, pickup & delivery |
+-| **🏠 Shelter Lead** | `shelter@lastmilex.app` | `shelter@lastmilex.app` | Real-time intake board, capacity & demand tracking, water/fuel utility status |
+-
+-> **Note**: Any custom email entered with a password matching the email will also automatically launch Demo mode.
++- `supabase/migrations`: core/RLS, coordination, and separately scheduled sweeps.
++- `docs/reference`: map-provider and Auth/Cron implementation references.
+ 
+-### Demonstrable Primitives under Judge Failure Injection
+-1. **Ghost Rider**: Advances an unconfirmed claim past its 90-second heartbeat threshold, triggering automated claim revocation and batch republishing.
+-2. **Mid-Route Shelter Saturation (Destination Shock)**: Simulates a destination shelter filling to 100% capacity while a rider is en route, triggering dynamic real-time rerouting to an alternate shelter with open demand.
+-3. **Dependency Violation Gate**: Prevents pickup of supplies requiring potable water/cooking fuel if the destination shelter has an outage.
+-4. **Bulk 180-Unit Splitter**: Ingests 180 cooked meals (75-minute shelf-life) and fractures the load across five 40/20-unit sub-batches respecting volunteer vehicle capacities.
+-5. **Live Role Switcher**: Judges can switch between all 4 stakeholder views with one click in the top navigation bar.
++Operational transitions, dependency checks, expiry, splitting, claims, and rerouting remain server-side. RLS denies direct browser writes to operational tables. Never grant browser clients a service-role key.
+ 
+-See [`plan.md`](plan.md), [`TODO.md`](TODO.md), and [`docs/source/`](docs/source/) for architecture decisions and technical specifications.
++See [`plan.md`](plan.md), [`TODO.md`](TODO.md), and [`docs/source/`](docs/source/) for design decisions and remaining validation work.
+diff --git a/TODO.md b/TODO.md
+index d40010aa1df42d37619587c924baf50b83ad3b6a..3f34f09785a9726c30189d5a59fe11393907fbbc 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -1,113 +1,88 @@
+ # Last-Milex — Milestone Task List
+ 
+-**Status:** Local integration in progress. The working copy contains password login/setup, offline/static-shell handling, live-vs-stale status, retry-safe donor request keys, and a draft coordination migration. Typecheck, existing unit tests, and production build passed before the latest rider-presence and SQL refinements; they must be rerun. Core schema/RLS are applied to the current live Supabase project by the user's explicit authorization; this was an exception to the original development-first plan. The coordination migration remains draft-only and unapplied. No demo accounts, commits, pushes, or new deployments were made.
++**Verified baseline (2026-10-25):** Vercel Production `last-milex.vercel.app` responds from `main` commit `3c9908e` (`READY`). The public UI is a Judge/Admin demo with preset mock profiles and San Francisco fixtures. Supabase core schema/RLS, coordination RPC/trigger migration, and separate Cron schedule migration were applied on 2026-10-24; both schedules have successful runs recorded, but full dispatch transitions remain untested. The local branch `feature/real-geographic-map` now contains the Leaflet map linked to saved coordinates; 17 unit tests pass, TypeScript/build pass, and the static preview was visually checked. It is not pushed or deployed. No database changes were made.
+ 
+ ## Milestone 0 — Project baseline and configuration
+ 
+-- [x] **0.1 Configure the browser-safe Supabase client.** Vercel Production uses `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`; no service-role key is in browser code. A baseline production deployment after the variables were corrected responded at the live alias. This does not prove dispatch RPC functionality. Commit message: `chore: add Supabase project config`.
+-- [x] **0.2 Scaffold the client.** React + Vite + TypeScript app and current package scripts are present in the repository. Commit message: `chore: scaffold frontend`.
+-- [x] **0.3 Connect the repository workflow.** The authorized repository is `https://github.com/vedantbbhoi-bot/Last-Milex`; the authenticated GitHub CLI can read it. The originally requested GitHub MCP is unavailable in this session; previous authorization permits the GitHub API/CLI route. No changes from this task have been pushed. Commit message: `chore: initialize repository`.
+-- [x] **0.4 Keep project status accurate.** README, plan, and this checklist now distinguish the applied live schema/RLS from unapplied coordination SQL and distinguish local source changes from the deployed app. Commit message: `docs: reconcile project implementation status`.
++- [x] **0.1 Browser-safe Supabase configuration.** Vercel Production has the public project URL and publishable key; no service-role key is bundled in client code.
++- [x] **0.2 React/Vite/TypeScript project and Vercel hosting.** Existing app and public alias are live.
++- [x] **0.3 Repository access.** Latest `main` commit is fetched locally; this task uses a separate local feature branch and does not push.
++- [x] **0.4 Correct current documentation.** Plan and checklist state the verified deployment/database baseline and map limitations.
+ 
+-## Milestone 1 — Core database schema and RLS baseline
++## Milestone 1 — Schema and access control
+ 
+-- [x] **1.1 Apply the core schema.** `profiles`, `riders`, `shelters`, `shelter_members`, `batches`, `sub_batches`, and `claim_audit` exist with PostGIS and `pg_cron` support; roles are `donor`, `rider`, `shelter`, and `admin`; sub-batches are bounded to 40 units. Applied to the current live project by explicit user instruction. Commit message: `feat: add core schema with sub_batches`.
+-- [x] **1.2 Apply least-privilege RLS.** Authenticated operational reads are scoped; direct browser state-transition writes are revoked; users cannot self-promote; role/shelter assignment remains trusted-server-only. Applied to the current live project by explicit user instruction. Commit message: `feat: add row-level security`.
+-- [ ] **1.3 Add and test business triggers.** A local draft contains positive-to-zero shelter-shock handling and rerouting, but it is not applied or runtime-tested. It does not handle every positive-demand/resource reduction or supply road ETA. Commit message: `feat: add coordination triggers`.
+-- [x] **1.4 Record the applied baseline.** Core schema/RLS are applied to the current project, not a disposable test project. No operational fixture data was used. All new coordination SQL remains draft-only until separately approved. Commit message: `deploy: apply schema migrations`.
++- [x] **1.1 Core schema and RLS.** `profiles`, `riders`, `shelters`, `shelter_members`, `batches`, `sub_batches`, and `claim_audit` with PostGIS, least-privilege RLS, and role boundaries are installed on the current live project.
++- [x] **1.2 Coordination RPC/trigger migration.** Batch creation/splitting, claims, rider presence, heartbeat, pickup, delivery, dispatch validation, dead-man/expiry sweeps, shelter-shock rerouting, and audit support are installed live.
++- [x] **1.3 Separate sweep schedules.** Dead-man sweep every 30 seconds and expiry sweep every minute are installed; successful schedule runs were observed. This does not establish full end-to-end state-transition correctness.
++- [ ] **1.4 Full integration/concurrency tests.** Exercise transaction invariants with isolated test records before treating dispatch as production-validated.
+ 
+-## Milestone 2 — Dynamic batch splitter
++## Milestone 2 — Batch splitting and donor flow
+ 
+-- [ ] **2.1 Implement `split_batch(p_batch_id)`.** Drafted locally with parent/shelter serialization, reservation subtraction that includes shelter-assigned `at_risk` cargo, dependency compatibility, a recently-present rider capacity bound, a 40-unit ceiling, explicit unassigned at-risk remainder, and idempotent return after a completed split. It still needs disposable-database execution/concurrency tests and approval before application. Commit message: `feat: add dynamic batch splitter RPC`.
+-- [ ] **2.2 Make donor create/split retry-safe.** The draft adds a per-actor request ledger and `create_batch(..., p_request_id)`; the donor form stores and reuses the exact payload/request UUID in session storage after uncertain online responses, then retries split without creating a duplicate parent. No offline batch submission is queued. Runtime/PostgREST compatibility remains untested. Commit message: `feat: donor split flow`.
+-- [ ] **2.3 Animate sub-batch entry.** Use the required 40 ms stagger and 6 px Y-offset, transform/opacity only, approved motion curve, and reduced-motion fallback. Commit message: `style: sub-batch stagger entrance`.
++- [x] **2.1 Idempotent `create_batch` and `split_batch`.** Installed live with request ledger and demand/reservation/dependency checks; sub-batches capped at 40. The UI keeps the same request key on uncertain online retries.
++- [ ] **2.2 Test 180-unit splitting.** Verify compatible allocations, demand/resource ceilings, leftovers, and retries under concurrent requests.
++- [ ] **2.3 Verify entrance motion and reduced-motion behavior.**
+ 
+-## Milestone 3 — Authentication and realtime panels
++## Milestone 3 — Auth, realtime, and boards
+ 
+-- [ ] **3.1 Replace sign-in email links with email/password.** Local code now calls Supabase `signInWithPassword` and has a signed-in first-time “Set or change password” path using `updateUser({ password })` to preserve the existing Auth identity. It does not add public sign-up or change Auth confirmation/SMTP settings. Live Auth behavior and the existing user's password setup have not been tested. Password recovery is a separate email-based flow. Commit message: `feat: switch to password authentication`.
+-- [ ] **3.2 Verify Realtime status.** The dashboard exposes channel state, coalesces updates, single-flights reads, retries with bounded backoff, and refreshes on reconnect/visibility. It remains untested against a live browser session. Commit message: `feat: add realtime subscriptions`.
+-- [ ] **3.3 Complete the shelter board.** Show remaining demand, capacity, water/fuel resource badges, and accessible text status labels; shelter writes remain limited to mapped shelter members through checked RPCs. Commit message: `feat: shelter board`.
+-- [ ] **3.4 Complete live metrics.** Show spoiled share, dead-man revokes, split sub-batches, deliveries, and reroutes from committed server state; retain the approved motion curve and reduced-motion fallback. Commit message: `feat: animated metrics bar`.
+-- [ ] **3.5 Set the project Auth email-send limit to 30 messages/hour.** This is separate from password sign-in, which sends no email. The connected Supabase tools have no Auth-settings write operation, and changing this through SQL is not supported; configure it through Supabase project Auth settings after checking the plan/SMTP limits. **Not changed by this local code work.**
++- [x] **3.1 Password sign-in and password setup UI.** Current app supports the demo role selector and password authentication paths. The public demo profiles are mock-only, not real Supabase Auth identities. Routine password sign-in sends no sign-in email.
++- [ ] **3.2 Test Realtime status, reconnect, stale-state messaging, and role-scoped reads with real Auth accounts.**
++- [ ] **3.3 Verify shelter board, donor queue, rider cockpit, and metrics against Supabase-backed rows.**
++- [ ] **3.4 Set the requested project email-send rate limit to 30/hour.** This is separate from password login and is still a Supabase Auth dashboard setting; no change has been made.
+ 
+-## Milestone 4 — Claim, heartbeat, pickup, delivery, and dead-man sweep
++## Milestone 4 — Claims, pickup, delivery, and dead-man behavior
+ 
+-- [ ] **4.1 Add atomic claim and pickup RPCs.** Drafted locally. Claim is rider-only, checks rider presence, capacity, current assignment and destination, sets the five-minute deadline and heartbeat, and audits `claimed`. Same-rider claim retries fail closed after expiry, a closed pickup deadline, or stale heartbeat. Repeated pickup confirmation returns success only while the in-transit load remains unexpired with a fresh heartbeat. Runtime tests are pending. Commit message: `feat: add claim RPC with deadlines`.
+-- [ ] **4.2 Add rider presence and `heartbeat(p_sub_batch_id)`.** Local UI pings `rider_presence()` when idle and sends active-cargo heartbeat every 60 seconds only while online. Late heartbeats older than 90 seconds are rejected, and failed/offline heartbeats are not replayed. SQL is draft-only; browser behavior is not tested. Commit message: `feat: rider heartbeat sender`.
+-- [ ] **4.3 Implement idempotent `dead_man_sweep()`.** Draft revokes an unconfirmed/stale pre-pickup claim only after rechecking the shelter reservation/dependency; it reoffers only if still valid and otherwise marks at risk. Stale in-transit cargo is not reoffered and requires human verification. The separate opt-in Cron definition is not active. Commit message: `feat: dead-man sweep RPC`.
+-- [ ] **4.4 Schedule the sweep every 30 seconds.** The separate opt-in draft `20261024132001_dispatch_sweep_schedules_draft.sql` defines the persistent `pg_cron` jobs; applying the RPC migration alone does not activate them. The schedule draft has not been applied or runtime-verified. Expected sweep delay remains distinct from the 90-second stale threshold. Commit message: `feat: schedule dead-man sweep`.
+-- [ ] **4.5 Complete the rider cockpit.** Local UI shows active/at-risk assignment, destination, expiry, pickup deadline, online action guards, presence age, and a read-only human-verification state. It needs browser/RPC integration tests. Commit message: `feat: rider cockpit heartbeat UI`.
+-- [ ] **4.6 Animate claim return.** Use the specified 240 ms `power2.in` transform/opacity return animation; do not animate width or height. Commit message: `style: revocation return animation`.
+-- [ ] **4.7 Add atomic delivery.** Draft permits only the assigned rider, decrements demand once, writes delivery/audit state, and blocks demand reduction below other active reservations. Runtime, concurrency, and positive-demand-change recovery behavior remain untested. Commit message: `feat: add delivery RPC`.
++- [x] **4.1 Atomic claim/pickup/delivery RPCs.** Installed live with role/assignment/dependency checks, five-minute pickup deadline, 90-second stale-heartbeat rule, audit rows, and idempotent/fail-closed retry behavior.
++- [x] **4.2 Rider presence and active heartbeat UI.** Online heartbeat/presence calls are implemented; offline calls are not queued or replayed.
++- [x] **4.3 Dead-man and expiry sweep jobs.** Installed and have successful runs recorded. Expired pre-pickup loads are conditionally reoffered; stale in-transit loads require human review; expired parents/children are audited.
++- [ ] **4.4 End-to-end timing/concurrency verification.** Verify measured sweep delay, revocation, pickup timeout, and delivery behavior using isolated records.
++- [ ] **4.5 Verify motion/accessibility behavior** for claim return, heartbeat state, and reroute interruption.
+ 
+-## Milestone 5 — Mid-route rerouter
++## Milestone 5 — Rerouting and dependency gate
+ 
+-- [ ] **5.1 Implement `find_alternative_shelter()`.** Draft ranks compatible shelters with remaining unreserved demand by straight-line PostGIS distance from a fresh rider location and preserves a five-minute expiry buffer. It does not model road route or ETA; do not represent it as route-feasible. Commit message: `feat: rerouter RPC`.
+-- [ ] **5.2 Implement shelter-shock handling.** Draft serializes writes and handles a positive-to-zero demand transition inside the database; otherwise it marks in-transit cargo at risk. It does not yet handle every positive-demand/resource-loss/deactivation case. Commit message: `feat: shelter shock trigger`.
+-- [ ] **5.3 Render committed destinations.** The client consumes committed Realtime rows; it does not call the rerouter as a required follow-up or invent destination changes. Live verification pending. Commit message: `feat: client reroute handler`.
+-- [ ] **5.4 Animate reroute morph.** MotionPath curviness 0.45, `autoRotate`, duration 700 ms, `overwrite: 'auto'`; fade the old path and interrupt/replace an in-progress path when another committed reroute arrives. Commit message: `feat: animate reroute deflection`.
+-- [ ] **5.5 Add the persistent at-risk banner.** Show only while an `at_risk` sub-batch exists and give a clear human-intervention message. Commit message: `feat: at-risk fallback banner`.
++- [x] **5.1 Rerouter and shelter-shock path installed.** Positive-to-zero shelter demand change can trigger server-side reroute or `at_risk`, with committed Realtime updates.
++- [x] **5.2 Client renders committed destination and at-risk banner.**
++- [ ] **5.3 Test destination/resource/dependency changes and route interruption with isolated data.** Current route ranking is straight-line distance, not road routing or ETA.
+ 
+-## Milestone 6 — Expiry and dependency gate
++## Milestone 6 — Judge/failure-injection testing
+ 
+-- [ ] **6.1 Add the expiry sweep.** The RPC draft marks expired non-delivered children `spoiled`, records audit rows, and recomputes parent state; it also marks expired open parents with no child rows `fully_spoiled` with a batch-level audit. A once-per-minute `pg_cron` job is in the separate opt-in schedule draft; neither file has been applied or runtime-tested. Commit message: `feat: expiry sweep cron`.
+-- [ ] **6.2 Add `validate_dispatch()`.** Draft rechecks the assigned shelter, demand, resources, dependency, expiry, pickup deadline, and heartbeat immediately before pickup. Runtime tests pending. Commit message: `feat: dispatch validation RPC`.
+-- [ ] **6.3 Surface dependency failures.** The UI shows the server's inline reason; live role/action behavior remains untested. Commit message: `feat: dependency gate UI`.
++- [ ] **6.1 Ghost rider, shelter-fill, dependency violation, and forced 180-unit split scenarios.** Run only against isolated demo data. No test scenario should mutate real operational work.
++- [ ] **6.2 Motion and accessibility audit.** Verify reduced motion, stagger, interaction feedback, keyboard use, and state text.
+ 
+-## Milestone 7 — Judge failure-injection controls
++## Milestone 7 — Low-connectivity behavior
+ 
+-- [ ] **7.1 Simulate a ghost rider.** In isolated demo data, claim a sub-batch, stop that rider's heartbeat, and observe automatic revocation/audit; never alter a production user's live work. Commit message: `feat: ghost injection`.
+-- [ ] **7.2 Fill a shelter mid-route.** Set a demo shelter's demand to zero only through an admin-checked test RPC and verify server-side reroute or `at_risk`. Commit message: `feat: mid-route fill injection`.
+-- [ ] **7.3 Trigger a dependency violation.** Make a demo destination incompatible and call the validator; verify pickup is blocked and the reason is visible. Commit message: `feat: dependency violation injection`.
+-- [ ] **7.4 Force a 180-unit split.** Create a test-only 180-unit water-dependent batch with 75 minutes of shelf life; verify each child is at most 40, compatible shelter allocations respect demand/resources, and any remainder is `at_risk`. Commit message: `feat: force-split injection`.
+-- [ ] **7.5 Add button press interaction.** Implement the specified 80 ms press-down effect using only the approved easing exception. Commit message: `style: button micro-interactions`.
++- [x] **7.1 Static PWA shell and connectivity status.** Deployed worker caches same-origin app assets only; Supabase data and third-party tiles are not cached.
++- [x] **7.2 Online-only dispatch actions.** Claims, pickup, delivery, batch submission, and heartbeats are not queued or replayed while offline.
++- [ ] **7.3 Throttled-network and offline browser test.** Verify cached shell and in-memory stale data behavior; persistent operational-data snapshots remain disabled.
+ 
+-**Blocker:** judge/failure-injection RPCs are intentionally omitted because the current shared project has no proven demo-row isolation. Add them only in an isolated project or after safe test-only row isolation is implemented.
++## Milestone 8 — Demo accounts and signup/admin follow-up
+ 
+-## Milestone 8 — Motion and accessibility audit
++- [ ] **8.1 Provision 4–5 real Supabase Auth test accounts.** Production mapping/random temporary passwords were approved earlier, but the dashboard sign-in was blocked and the connector cannot create Auth users. The preset public-demo profiles are not those accounts. A trusted local Admin API script is the supported route; do not put service-role keys or generated passwords in Git/frontend.
++- [ ] **8.2 Seed role-scoped rider/shelter fixtures** only through a trusted operator workflow and clearly identify test records.
++- [ ] **8.3 Implement donor/driver signup, pending rider approval, and admin-only shelter creation/monitoring.** This remains separate from the current map task; no public self-promotion or client-side role assignment.
+ 
+-- [ ] **8.1 Audit easing and size animation.** Search for `linear`, generic `ease`, `bounce`, and width/height animation; fix every violation except an explicitly approved exception. Commit message: `style: pass anti-slop motion audit`.
+-- [ ] **8.2 Verify staggered entrances.** Stagger sub-batches, shelters, and riders; avoid moving all important UI elements simultaneously. Commit message: `style: enforce stagger`.
+-- [ ] **8.3 Tie heartbeat pulse to real state.** Update pulse state/rate as actual heartbeat age and time-to-revoke change; do not present animation as proof of connectivity. Commit message: `style: heartbeat pulse state-driven`.
+-- [ ] **8.4 Respect `prefers-reduced-motion`.** Remove nonessential motion while preserving state information and every action. Commit message: `style: respect reduced motion`.
+-- [ ] **8.5 Verify reroute interruption and path.** Verify sequential route changes end at the latest server-selected shelter. Commit message: `test: verify reroute morph`.
++## Milestone 9 — Vercel release
+ 
+-## Milestone 9 — Low-connectivity and offline mode
++- [x] **9.1 Current Production host and public alias verified.** `https://last-milex.vercel.app` responds from the latest `main` commit.
++- [ ] **9.2 Publish this real-map feature.** Only after source review; no push/deploy is performed in this task.
+ 
+-- [ ] **9.1 Cache the static PWA shell.** Local code adds a versioned custom service worker, manifest, and SVG icon. It caches only the static shell and same-origin Vite assets, excludes user data/API responses, and falls back to the cached app shell after a short navigation timeout. Browser install/offline/update testing remains pending. Commit message: `feat: cache offline app shell`.
+-- [ ] **9.2 Show truthful connection and stale state.** Local code distinguishes browser online hint, successful data sync, Realtime channel status, and last sync; it shows text and accessible retry/status announcements. It does not treat an initial failure as an empty authoritative board. Browser testing pending. Commit message: `feat: show connectivity and stale state`.
+-- [ ] **9.3 Reduce network churn.** Dashboard reads are bounded, single-flight, coalesced, retried with bounded exponential backoff/jitter, and resumed on reconnect/visibility. Verify on throttled network. Commit message: `perf: reduce low-bandwidth sync traffic`.
+-- [ ] **9.4 Keep dispatch operations online-only.** Local code disables batch submission, claims, pickup, delivery, and heartbeat while offline/unverified; no missed mutation is automatically queued or replayed. Reconnect requires fresh data and a subscribed Realtime channel before actions enable. Browser testing pending. Commit message: `fix: require online state for dispatch actions`.
+-- [ ] **9.5 Decide on persistent operational-data caching.** No IndexedDB/localStorage snapshot is enabled. Until the user approves a policy, cache static files only and retain dashboard data in memory while the tab remains open. Commit message if later approved: `feat: add scoped offline snapshot`.
+-- [x] **9.6 Keep retry identity for uncertain online creates.** Donor create stores only the temporary request key and exact payload in session storage until the server confirms both create and split. This is not an offline batch queue/draft; submission still requires online state. Browser storage-failure behavior needs testing. Commit message: `fix: reuse idempotency key on retry`.
++## Milestone 10 — Real geographic map (current task)
+ 
+-## Milestone 10 — Isolated demo accounts and fixtures
++- [x] **10.1 Replace the fixed SVG with a responsive real map** using Leaflet and a configurable raster tile URL; OpenStreetMap is the initial no-key demo default.
++- [x] **10.2 Link map markers to application data.** Show every coordinate-valid shelter, riders with saved coordinates, and active assignments whose rider and shelter both have saved coordinates. Updates follow dashboard/Realtime refreshes.
++- [x] **10.3 Be explicit about location semantics.** Demo markers are static San Francisco fixtures; Supabase markers are last-saved coordinates, not live GPS. No device geolocation or GPS-write RPC is added.
++- [x] **10.4 Draw only straight-line visual links** from a saved rider position to its assigned shelter. They are labeled direct lines, not driving routes/ETAs; missing endpoints do not get fabricated.
++- [x] **10.5 Show tiles and attribution safely.** Linked OpenStreetMap attribution is visible; URL/attribution are configurable; only viewport tiles are requested, and external tiles are not service-worker-cached or prefetched.
++- [x] **10.6 Preserve data integrity.** Live Supabase read failures retain a last-good snapshot as stale or show unavailable; they no longer substitute demo coordinates. Tile/offline messages preserve the coordinate markers.
++- [ ] **10.7 Verify remaining visual/network cases.** Unit tests, TypeScript, build, and desktop demo preview passed; mobile layout, forced tile failure/offline, and a live Supabase-coordinate session were not separately tested. No release until user pushes locally.
+ 
+-- [ ] **10.1 Confirm an isolated development/demo Supabase project.** Do not create demo identities or operational fixtures in the current production/shared project. Resolve project cost/approval before creating a new project or branch. Commit message: `docs: define isolated demo environment`.
+-- [ ] **10.2 Provision 4–5 role-specific Auth users.** Use Supabase Auth Dashboard/Admin API or a trusted local seed script, never direct SQL inserts into `auth.users`; elevated roles are assigned only by trusted admin tooling. Suggested five-account coverage is donor, two riders, shelter member, and trusted admin; use confirmed addresses and generated temporary passwords, with no credentials in browser code/Git. Commit message: `feat: add demo account provisioning`.
+-- [ ] **10.3 Seed only synthetic, resettable test fixtures.** Add shelter, resource, rider, and dispatch records only in the isolated demo project; associate shelter role with scoped `shelter_members`; tag demo batches/children `is_demo`; never mix fixtures with production. Commit message: `test: seed isolated dispatch fixtures`.
+-- [ ] **10.4 Verify account role boundaries.** Donor cannot claim, rider cannot edit shelter resources, shelter member is scoped to mapping, and only trusted admin can invoke test controls. Commit message: `test: verify demo role permissions`.
++**Map-provider caveat:** the OpenStreetMap standard raster tile service is best-effort with no SLA and prohibits offline tile downloads. For higher-volume flood-response production, switch to a provider/self-hosted map with suitable availability and explicit offline rights. Source details are in [`docs/reference/map-tiles.md`](docs/reference/map-tiles.md).
+ 
+-**Blocked:** no target staging project or test identities/roles were confirmed, and no accounts have been created.
++## Final status checklist
+ 
+-## Milestone 11 — Vercel release and live verification
+-
+-- [x] **11.1 Retain Vercel as the approved current host.** The deployed alias is `https://last-milex.vercel.app`; do not migrate to Firebase. This confirms only the host choice and existing baseline URL. Commit message: `deploy: retain Vercel hosting`.
+-- [ ] **11.2 Publish the integrated frontend.** Build and deploy only after source and database migrations are approved. A push to the production branch may trigger deployment. The local changes are not deployed. Commit message: `deploy: publish integrated frontend`.
+-- [ ] **11.3 Configure daily Supabase keep-alive only if required.** Confirm plan/project need and approve the behavior; do not mask dormancy or health issues with unnecessary pings. Commit message: `chore: Supabase keep-alive`.
+-- [ ] **11.4 Verify the live release.** Confirm password login, role-scoped reads, RPC permissions/transitions, Realtime, offline/stale UX, and the live URL against the authorized target. Commit message: `test: verify deployment`.
+-
+-## Final deliverable checklist
+-
+-- [ ] Live URL loads the requested integrated release. — **Not tested; no new deployment.**
+-- [ ] Supabase backend has reviewed schema/RLS plus triggers and coordination RPCs. — **Partial:** core schema/RLS applied; coordination migration drafted locally but unapplied and not runtime-tested.
+-- [ ] Splitter: 180-unit batch becomes compatible sub-batches of at most 40. — **Not tested.**
+-- [ ] Heartbeat: rider presence/active heartbeat cadence, 90-second stale handling, five-minute pickup timeout, and observed scheduler lag. — **Not tested; Cron jobs exist only in the draft.**
+-- [ ] Rerouter: positive-to-zero demand change triggers server-side reroute or `at_risk`, committed MotionPath update, and audit. — **Not tested; draft uses straight-line distance, not road ETA.**
+-- [ ] Admin failure-injection scenarios run only on isolated demo data. — **Not implemented; test RPCs omitted pending safe isolation.**
+-- [ ] Password sign-in requires no sign-in email; existing magic-link user can set a password without replacing the Auth identity. — **Local code implemented; not tested against live Auth.**
+-- [ ] Low-connectivity behavior shows last-sync state, cached shell, and never treats offline dispatch actions as committed. — **Local code implemented; browser/throttled-network test pending.**
+-- [ ] 4–5 demo accounts are role-scoped in an isolated environment with no service-role key or credentials in frontend/Git. — **Blocked pending user confirmation.**
+-- [ ] Motion/accessibility audit passes. — **Not tested.**
+-- [ ] Repository push and production deployment use the authorized GitHub/Vercel path and are separately confirmed. — **Not performed.**
+-- [x] Implementation plan and milestone task list are present and status-accurate for the current local work.
++- [x] Public Vercel URL responds from the latest verified deployment.
++- [x] Supabase schema/RLS, coordination functions/triggers, and recurring sweeps are installed; successful Cron runs observed.
++- [ ] Full dispatch lifecycle and concurrency tests complete.
++- [x] Real geographic map implemented and linked to demo/saved-coordinate data in the local branch; not deployed.
++- [ ] Live GPS/road routing enabled. **Out of scope and not enabled**; requires separate privacy/product approval and backend work.
++- [ ] Demo Auth accounts created. **Not created**; current public presets are mock-only.
++- [ ] This feature pushed/deployed. **Not done**; local branch only.
+diff --git a/docs/reference/map-tiles.md b/docs/reference/map-tiles.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..97d5b4bdb179b6635c4978de7c83bdfeafb6bbe2
+--- /dev/null
++++ b/docs/reference/map-tiles.md
+@@ -0,0 +1,21 @@
++# Real-map provider notes
++
++## Initial integration choice
++
++Use Leaflet with a configurable raster `TileLayer` and OpenStreetMap standard tiles as the no-key demo default. Show visible `© OpenStreetMap contributors` attribution on the map. Leaflet accepts a tile URL template and an attribution string; the renderer does not override the selected provider's usage policy.[2]
++
++The standard OpenStreetMap tile service is donation-funded, capacity-limited, best-effort, and has no SLA. It permits normal interactive viewing of tiles currently needed in the viewport, but does not permit offline tile downloads or bulk prefetch. The app must keep the required HTTPS tile URL, visible attribution, and normal browser cache behavior. The app's service worker must not intercept/cache third-party tiles or prefetch map areas.[1]
++
++Keep the tile URL configurable through `VITE_MAP_TILE_URL` so the owner can switch to a commercial or self-hosted provider with an appropriate SLA and explicit offline rights. Do not imply that the default public tile service provides flood-response availability or offline maps.
++
++## Application-data semantics
++
++The map can render saved shelter and rider latitude/longitude from Supabase, and the current demo store includes static coordinates around San Francisco. The existing presence RPC updates heartbeat/status but does not take GPS coordinates. The initial implementation should display only coordinates already saved in the project; it must not prompt for device geolocation or claim that markers are live GPS. Route lines between a rider's last saved position and a shelter are straight-line visual links, not road routes or ETA estimates. Demo mode must be explicitly labeled as demo data.
++
++If a real Supabase read fails, keep the last successful authenticated snapshot or show an unavailable state. Never substitute demo coordinates into an authenticated session's map.
++
++## References
++
++[1]: https://operations.osmfoundation.org/policies/tiles/ "OpenStreetMap Tile Usage Policy"
++[2]: https://leafletjs.com/reference.html "Leaflet API Reference"
++[3]: https://react-leaflet.js.org/docs/api-components/ "React Leaflet API Components"
+diff --git a/package.json b/package.json
+index d7434fa7831aca02eaf104925d6e8be60a4ba81c..94ff3a8f277cc45623668d3e081c905db1f4c6d2 100644
+--- a/package.json
++++ b/package.json
+@@ -16,11 +16,14 @@
+   "dependencies": {
+     "@supabase/supabase-js": "^2.58.0",
+     "gsap": "^3.13.0",
++    "leaflet": "^1.9.4",
+     "lucide-react": "^0.468.0",
+     "react": "^19.1.0",
+-    "react-dom": "^19.1.0"
++    "react-dom": "^19.1.0",
++    "react-leaflet": "^5.0.0"
+   },
+   "devDependencies": {
++    "@types/leaflet": "^1.9.22",
+     "@types/react": "^19.1.0",
+     "@types/react-dom": "^19.1.0",
+     "@vitejs/plugin-react": "^4.7.0",
+diff --git a/plan.md b/plan.md
+index 275f17dbbc50aaf501e6859c371078a581bfc250..1031919d763eabb3493361b4360e76bcce99956d 100644
+--- a/plan.md
++++ b/plan.md
+@@ -1,90 +1,54 @@
+ # Last-Milex — Implementation Plan
+ 
+-**Status:** Local integration in progress. Password sign-in/setup, connectivity reporting, static-shell PWA behavior, online-only dispatch controls, and retry-key plumbing are implemented in the working copy. The coordination migration is a local review draft with scheduled sweeps; it has not been applied. No demo accounts, commits, pushes, or new deployments were made.
++**Status (2026-10-25):** The current public Vercel deployment is `READY` from `main` commit `3c9908e`; the public alias responds. Supabase core/RLS, dispatch RPC/trigger, and separate sweep schedules were applied on 2026-10-24; both jobs have successful runs recorded, but full dispatch transitions remain untested. The local branch `feature/real-geographic-map` now replaces the fixed SVG with Leaflet, links saved shelter/rider coordinates and two active demo assignments, and displays linked OpenStreetMap attribution. Local unit tests (17), TypeScript, and production build pass; a browser preview showed tiles, 4 shelters, 4 riders, 2 direct links, and one zoom control. No database changes, push, or deployment were made.
+ 
+-## Goal and scope
++## Goal
+ 
+-Complete the dispatch application while preserving its React/Vite + Supabase architecture and current Vercel host. The requested work covers idempotent donor batch creation/splitting; rider presence, claims, heartbeat, pickup, delivery, expiry, rerouting, and judge/testing flows; email/password login; and usable behavior during intermittent or weak flood connectivity. Prepare 4–5 role-specific demo accounts only in an isolated test project after the project and identities are confirmed.
++Replace the fixed diagram with a real geographic map that reflects the currently loaded application data: saved shelter coordinates, saved rider coordinates, and active assignments. Preserve the existing React/Vite/Supabase/Vercel stack and field-operations visual style. This iteration must not silently enable rider GPS tracking, expose demo locations in an authenticated session, or claim that straight lines are road routes.
+ 
+-The user's prior instruction is **draft SQL only; do not apply it live**. Preserve that gate. Do not push to the production branch or publish a Vercel deployment until separately authorized.
++## Verified data and UI behavior
+ 
+-## Stack and current implementation
++- The public demo dataset contains static San Francisco coordinates for four shelters and four riders. Demo actions update a browser-local demo store; those preset coordinates are not live GPS.
++- Supabase-backed dashboard reads already select `shelters.latitude/longitude` and `riders.latitude/longitude`. The active dispatch rows include `rider_id` and `shelter_id`, which can link a known saved rider point to its shelter.
++- The live `rider_presence()` RPC refreshes heartbeat/status but does not accept or save device GPS coordinates. The new map will display only coordinates already saved in Supabase or the explicit demo store. It will not request browser geolocation.
++- The map branch removed the dashboard's former fallback to demo-store data on Supabase query errors/exceptions. A live session now retains its last successful snapshot as stale or shows an unavailable state; it never replaces failed live data with demo coordinates.
++- Map polylines will be straight-line visual links from the rider’s last saved position to the assigned shelter. They are not road routing, navigation directions, or ETA estimates. If either endpoint is missing, show the shelter/rider markers without fabricating a route.
+ 
+-Keep React 19, TypeScript, Vite, Supabase JS/Postgres/Realtime, the existing visual system, GSAP, and Vercel. A small custom service worker caches the static shell and same-origin hashed Vite assets only. It falls back to the cached root page after a short navigation timeout. The service worker never caches Supabase/Auth/API responses or operational data. Static app status and Supabase/Realtime status are separate.
++## Map provider and low-connectivity constraints
+ 
+-`README.md` and `TODO.md` track the current applied baseline and remaining work. The core schema and RLS migrations were applied to the current live/shared Supabase project on the user's explicit instruction; this was an exception to the original development-first plan. The live project has no coordination RPCs from this local draft.
++Use Leaflet with a configurable tile URL, defaulting to OpenStreetMap’s standard raster tiles for the public demo so no API key is required. Keep visible `© OpenStreetMap contributors` attribution. Use only tiles needed for the current viewport; do not prefetch or cache third-party map tiles in the service worker. The public OSM tile service is best-effort and has no SLA; its policy prohibits offline map downloads. For flood-response production use or higher volume, switch to a provider/self-hosted tile service with an appropriate SLA and explicit offline rights. Provider facts are recorded in [`docs/reference/map-tiles.md`](docs/reference/map-tiles.md).
+ 
+-## Architecture and safety decisions
++The app’s static shell can still load offline, and saved dashboard rows may remain in memory for the open session, but the basemap needs network access. The map must show an explicit stale/offline or tile-unavailable note while keeping cached-in-memory markers visible. Do not imply offline map coverage.
+ 
+-1. **Authentication:** Use Supabase `signInWithPassword`; signing in does not send a sign-in email. Do not add public self-registration. Profile roles remain trusted-admin assigned. A user with an active legacy magic-link session can set a password on the same Auth identity through `updateUser({ password })`. If that session is gone, recovery may still use email. The separately requested project-level email-send limit of 30 messages/hour remains pending; the connected Supabase tools expose no Auth-settings write operation, and SQL is not appropriate for changing it. Do not change confirmation or SMTP settings as part of the UI task. See [`docs/reference/supabase-password-auth.md`](docs/reference/supabase-password-auth.md).
+-2. **Trusted dispatch state:** Keep state transitions behind narrow SECURITY DEFINER RPCs/triggers with fixed empty search paths, actor-role/ownership checks, least-privilege grants, and audit rows. The browser does not optimistically claim, pick up, deliver, reroute, or mutate shelter state.
+-3. **Low connectivity:** The custom worker caches only the static shell/assets. Dashboard rows are retained in memory while the tab remains open, with a last-sync timestamp and explicit offline/stale text. There is no IndexedDB/localStorage snapshot of operational rows. The worker's navigation fallback is time-bounded, and dashboard refresh uses bounded exponential backoff with jitter, single-flight reads, coalesced Realtime refreshes, and resume-on-reconnect/visibility.
+-4. **Offline action safety:** Do not queue or replay claims, pickup, delivery, heartbeat, or shelter mutations. Actions are disabled until the browser is online, a fresh dashboard read has succeeded, and Realtime reports a subscribed channel. Donor create uses a temporary session-scoped request ID plus the exact payload to reconcile uncertain online responses; it is not an offline batch draft and is removed after create and split are confirmed.
+-5. **Rider presence:** Rider rows default to `offline`. The draft therefore includes a rider-owned `rider_presence()` RPC, called immediately and every 60 seconds while the rider cockpit is online and idle. Active claims use `heartbeat(p_sub_batch_id)` every 60 seconds. Heartbeats older than 90 seconds are not revived; pre-pickup claims are reoffered only if shelter demand/resources still support them, and stale in-transit cargo becomes `at_risk` for human verification.
+-6. **Sweeps:** The RPC migration defines `dead_man_sweep()` and `expiry_sweep()` but does not activate jobs. A separate opt-in draft, `supabase/migrations/20261024132001_dispatch_sweep_schedules_draft.sql`, creates a named 30-second dead-man schedule and a one-minute expiry schedule through `pg_cron`; applying that file creates persistent data-mutating jobs and requires separate review/authorization. Neither schedule is active now. The 90-second heartbeat threshold and 5-minute pickup deadline remain enforced by RPC checks, but delayed sweeps can delay state reconciliation. Official scheduling details are in [`docs/reference/supabase-cron.md`](docs/reference/supabase-cron.md).
+-7. **Demo identities:** Use a separate development/demo Supabase project, not the current live/shared project. Create users only through Auth Admin API/Dashboard or a trusted server-side seed script; never insert into `auth.users` directly, expose a service-role key to the browser, or allow client self-promotion. Assign rider rows, shelter membership, and admin access through trusted tooling. Provisioning is blocked pending target project and identity confirmation.
++## Implementation delivered locally
+ 
+-## Security and data model
++1. **Map and data link:** `FlowMap.tsx` now renders valid shelter/rider markers and active claim/in-transit links where both saved endpoints exist. It fits to the locations, exposes marker popups/tooltips, shows demand/resources, and has an accessible summary.
++2. **Session semantics:** `App.tsx` passes rider rows, demo/live state, and connectivity. Demo fixtures are labeled as static demo coordinates; Supabase markers are saved positions/heartbeat, never GPS.
++3. **Geometry and tests:** `mapUtils.ts` validates coordinates, builds assignment links, and calculates only direct-line distance. Three unit tests cover coordinate validation, route linking, and distance.
++4. **Tile configuration:** `VITE_MAP_TILE_URL` and linked attribution are configurable. The default displays OpenStreetMap attribution; the service worker does not cache third-party tiles.
++5. **Error integrity:** Supabase errors no longer replace live data with the demo store. A last-good snapshot remains stale, or an initial read failure shows an error.
++6. **Validation:** `pnpm test` (17 passed), `pnpm run typecheck`, `pnpm run build`, `git diff --check`, and local browser preview passed. Browser tile-failure/offline/mobile behavior and a live Supabase-coordinate session have not been separately exercised. Do not deploy or push this branch without a separate user instruction.
+ 
+-The installed roles are `donor`, `rider`, `shelter`, and `admin`. RLS permits scoped authenticated reads and denies direct browser writes to operational tables. Preserve exact enums (`batch_status`, `sub_batch_status`, `rider_status`, and `dependency_type`) and audit event labels from the core migration. Never treat audit event strings such as `picked_up` or `dead_man_revoked` as status values.
++## Security and scope boundaries
+ 
+-| Data/action | Donor | Rider | Shelter member | Admin/demo judge |
+-|---|---|---|---|---|
+-| Profile | Read own; edit permitted display fields | Same | Same | Role changes only through trusted provisioning |
+-| Batch | Create/read own through checked RPCs | Read eligible/assigned rows | Read mapped rows | Read/manage only through checked operations |
+-| Claims and dispatch | No claim permission | Own presence/claim/heartbeat/pickup/delivery RPCs only | Read mapped rows | Read all; test-only operations only in isolated data |
+-| Shelter demand/resources | Read board | Read board | Any changes need a scoped, reviewed RPC | Admin-only management/test RPCs |
+-| Audit | Read related rows | Read own related rows | Read mapped rows | Read all; write only through functions/triggers |
+-| Offline copy | Stale in-memory, read-only display | Same | Same | Same |
++- No database migration is needed to render saved coordinates. Do not add GPS collection, location permissions, or a location-update RPC in this iteration.
++- Do not turn on offline map-tile downloads; that conflicts with the default OSM service policy.
++- Do not fall back to preset San Francisco data for a real authenticated account.
++- Existing dispatch RPC/scheduler migrations are already live. This map task does not alter RLS, Auth settings, rider roles, demo users, or schedule jobs.
++- The previously requested 30-email-per-hour Auth rate remains a separate Supabase project setting and is not changed by this feature.
+ 
+-## Current draft RPC coverage and limits
++## Milestones and release gates
+ 
+-The local migration defines `create_batch`, `split_batch`, `claim_sub_batch`, `rider_presence`, `heartbeat`, `validate_dispatch`, `confirm_pickup`, `deliver_sub_batch`, parent-status refresh, shelter shock/reroute handling, `dead_man_sweep()`, and `expiry_sweep()`. It includes an idempotency ledger for parent creation, an idempotent split, fixed search paths, role checks, and least-privilege grants. The donor UI now stores/reuses the exact request key for uncertain create responses.
++1. Update this plan/task list to match the current live baseline and map constraints.
++2. Implement the real map, data linking, and safe map-data error behavior locally on `feature/real-geographic-map`.
++3. Add focused unit tests and run the production build; visually inspect the demo map in the browser.
++4. Verify the map against real Supabase rows only after there are legitimate shelter/rider coordinates and authenticated test identities; do not manufacture GPS points.
++5. Deliver the local patch/source changes. The user owns local push/release; no deployment is performed here.
+ 
+-All six shelter-demand reservation checks include shelter-assigned `at_risk` cargo so unresolved loads cannot be double-allocated. Same-rider claim retries fail closed when their assignment is expired, the pickup deadline has elapsed, or the heartbeat is stale; pickup retries likewise reject expired or stale in-transit loads. The expiry sweep also marks expired open parents with no children as `fully_spoiled` and writes a batch-level audit row. The recurring Cron jobs live in a separate opt-in draft and are not activated by the RPC migration.
++## Known limits after the map change
+ 
+-The SQL has **not** been executed against PostgreSQL or a test database. Static parsing is not evidence that PL/pgSQL compiles or that lock behavior, RLS bypass, triggers, scheduling, and concurrency work at runtime. Before applying the RPC migration, test it against a disposable Supabase-compatible database and review function ownership and grants. Review and approve the separate schedule draft independently before activating recurring jobs.
+-
+-Known functional limitations remain: shelter selection/rerouting uses straight-line PostGIS distance, not road routing or verified ETA; a positive-demand reduction by trusted SQL may cause delivery to fail closed until manual reconciliation; no trusted shelter-demand mutation API or at-risk recovery RPC exists; and judge failure-injection RPCs are omitted because the shared project lacks demo-row isolation. Do not claim those workflows are production-ready.
+-
+-## Project structure
+-
+-```text
+-src/
+-  app/                    authentication boundary and dispatch shell
+-  components/             header, metrics, shelter board, at-risk banner
+-  features/auth/          password sign-in, password setup, session, dashboard
+-  features/batches/        retry-safe donor create/split flow
+-  features/claims/         rider presence, claim, heartbeat, pickup, delivery UI
+-  features/judge/          admin-only controls; backend test RPCs remain blocked
+-  features/routing/        SVG routes and MotionPath animation
+-  lib/                    Supabase client, connectivity hook, domain types
+-  styles/                 existing visual system and motion/accessibility rules
+-public/                   static PWA manifest, favicon, and service worker
+-supabase/migrations/      applied core/RLS plus local draft-only coordination SQL
+-scripts/                  trusted demo provisioning only after an isolated project is confirmed
+-docs/reference/           Auth and Cron implementation references
+-```
+-
+-## Design and interaction direction
+-
+-Retain the industrial field-notebook visual system, operational clarity, asymmetrical dispatch-board layout, split-box/route motifs, signal-coral for intervention, timer/quantity typography, and the existing motion language. Offline, stale, at-risk, and human-verification states need explicit text and keyboard-accessible controls, not color alone. Respect `prefers-reduced-motion`.
+-
+-## Milestone sequence
+-
+-1. Keep plan/task/README status accurate and record the live schema/RLS exception.
+-2. Finish and runtime-test the draft coordination migration and idempotent donor create/split integration.
+-3. Complete rider liveness, claim/pickup/dead-man, delivery, expiry, shelter-shock, and reroute workflows with tests; resolve the limits above.
+-4. Complete password migration and role-scoped UI tests without changing live Auth settings.
+-5. Browser-test low-connectivity behavior and decide whether any persistent operational-data cache is acceptable; default remains no persistent snapshot.
+-6. Confirm a separate demo project and identities; provision only synthetic fixtures there.
+-7. Run local/static validation, then request separate release approval before pushing or deploying through Vercel.
+-
+-## Dependencies, risks, and gates
+-
+-- The core schema/RLS baseline is live, but the coordination migration is local and unapplied. No RPC behavior from that draft is currently live.
+-- The current Supabase project is live/shared. The latest audit found one profile and no operational fixture data. No isolated demo project has been verified; project/branch creation may have cost implications.
+-- Actual demo accounts are blocked on the target project, exact identities/roles/shelter assignments, and safe credential handoff. No accounts or secrets have been created.
+-- Existing-user password setup needs an active authenticated session; without it, recovery can require an email reset or trusted Auth Admin action.
+-- Persistent offline data caching remains unapproved. The current design caches static assets only and retains operational rows only in memory.
+-- The authenticated GitHub CLI can access `vedantbbhoi-bot/Last-Milex`; the local checkout is `main` at `d24bc0f`. This task's changes have not been committed, pushed, or deployed. A push to the production branch may trigger Vercel; do not push or deploy without explicit release approval.
++- Public OSM tiles have no availability SLA and do not support offline map downloads.
++- Rider coordinates are last saved values, not live GPS; the current presence RPC does not move a rider marker.
++- Straight-line links are not road routes or arrival-time predictions.
++- The public demo uses static San Francisco fixture coordinates and must be visibly labeled as demo data.
++- Admin signup/shelter-management and public account provisioning are separate pending work; this map iteration does not create accounts or modify those features.
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index 23e83a206d0e28d4ab27720533547cf167fc3819..2e7502d89bea4c6d6da8d1a9f80cc595fbc22333 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -14,6 +14,9 @@ importers:
+       gsap:
+         specifier: ^3.13.0
+         version: 3.15.0
++      leaflet:
++        specifier: ^1.9.4
++        version: 1.9.4
+       lucide-react:
+         specifier: ^0.468.0
+         version: 0.468.0(react@19.3.1)
+@@ -23,7 +26,13 @@ importers:
+       react-dom:
+         specifier: ^19.1.0
+         version: 19.3.1(react@19.3.1)
++      react-leaflet:
++        specifier: ^5.0.0
++        version: 5.0.0(leaflet@1.9.4)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+     devDependencies:
++      '@types/leaflet':
++        specifier: ^1.9.22
++        version: 1.9.22
+       '@types/react':
+         specifier: ^19.1.0
+         version: 19.3.0
+@@ -366,6 +375,13 @@ packages:
+     resolution: {integrity: sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg==}
+     engines: {node: '>= 8'}
+ 
++  '@react-leaflet/core@3.0.0':
++    resolution: {integrity: sha512-3EWmekh4Nz+pGcr+xjf0KNyYfC3U2JjnkWsh0zcqaexYqmmB5ZhH37kz41JXGmKzpaMZCnPofBBm64i+YrEvGQ==}
++    peerDependencies:
++      leaflet: ^1.9.0
++      react: ^19.0.0
++      react-dom: ^19.0.0
++
+   '@rolldown/pluginutils@1.0.0-beta.27':
+     resolution: {integrity: sha512-+d0F4MKMCbeVUJwG96uQ4SgAznZNSq93I3V+9NHA4OpvqG8mRCpGdKmK8l/dl02h2CCDHwW2FqilnTyDcAnqjA==}
+ 
+@@ -560,6 +576,12 @@ packages:
+   '@types/estree@1.0.9':
+     resolution: {integrity: sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==}
+ 
++  '@types/geojson@7946.0.16':
++    resolution: {integrity: sha512-6C8nqWur3j98U6+lXDfTUWIfgvZU+EumvpHKcYjujKH7woYyLj2sUmff0tRhrqM7BohUw7Pz3ZB1jj2gW9Fvmg==}
++
++  '@types/leaflet@1.9.22':
++    resolution: {integrity: sha512-h3lhECYEKDasG7LFHu+GiHqAvsgLuQvlJvVZzJDGONo3sEL+wUOqSFLnwkZlK0qVxnxbuGFW8iBlJNYs5wgndA==}
++
+   '@types/react-dom@19.3.0':
+     resolution: {integrity: sha512-ZI7bU42mZXXKHn/qNLEw2IrbiINU7X5+vfgdixBHkCNpYWXjKgfQ/P+uyGb5CjOLB9UcnTeg3rylQtV2hym44Q==}
+     peerDependencies:
+@@ -866,6 +888,9 @@ packages:
+     engines: {node: '>=6'}
+     hasBin: true
+ 
++  leaflet@1.9.4:
++    resolution: {integrity: sha512-nxS1ynzJOmOlHp+iL3FyWqK89GtNL8U8rvlMOsQdTTssxZwCXh8N2NB3GDQOL+YR3XnWyZAxwQixURb+FA74PA==}
++
+   lilconfig@3.1.4:
+     resolution: {integrity: sha512-zJZyBmQhArDRefuWTypZxwDpFDIYmrj8ypSBvwGD5P13Y95s6DjzKgu4DVdGbeQa5PDEsAOCAPNk4X+QOR006w==}
+     engines: {node: '>=14'}
+@@ -1015,6 +1040,13 @@ packages:
+     peerDependencies:
+       react: ^19.3.1
+ 
++  react-leaflet@5.0.0:
++    resolution: {integrity: sha512-CWbTpr5vcHw5bt9i4zSlPEVQdTVcML390TjeDG0cK59z1ylexpqC6M1PJFjV8jD7CF+ACBFsLIDs6DRMoLEofw==}
++    peerDependencies:
++      leaflet: ^1.9.0
++      react: ^19.0.0
++      react-dom: ^19.0.0
++
+   react-refresh@0.17.0:
+     resolution: {integrity: sha512-z6F7K9bV85EfseRCp2bzrpyQ0Gkw1uLoCel9XBVWPg/TjRj94SkJzUTGfOa4bs7iJvBWtQG0Wq7wnI0syw3EBQ==}
+     engines: {node: '>=0.10.0'}
+@@ -1542,6 +1574,12 @@ snapshots:
+       '@nodelib/fs.scandir': 2.1.5
+       fastq: 1.20.3
+ 
++  '@react-leaflet/core@3.0.0(leaflet@1.9.4)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
++    dependencies:
++      leaflet: 1.9.4
++      react: 19.3.1
++      react-dom: 19.3.1(react@19.3.1)
++
+   '@rolldown/pluginutils@1.0.0-beta.27': {}
+ 
+   '@rollup/rollup-android-arm-eabi@4.65.0':
+@@ -1681,6 +1719,12 @@ snapshots:
+ 
+   '@types/estree@1.0.9': {}
+ 
++  '@types/geojson@7946.0.16': {}
++
++  '@types/leaflet@1.9.22':
++    dependencies:
++      '@types/geojson': 7946.0.16
++
+   '@types/react-dom@19.3.0(@types/react@19.3.0)':
+     dependencies:
+       '@types/react': 19.3.0
+@@ -2006,6 +2050,8 @@ snapshots:
+ 
+   json5@2.2.3: {}
+ 
++  leaflet@1.9.4: {}
++
+   lilconfig@3.1.4: {}
+ 
+   lines-and-columns@1.2.4: {}
+@@ -2117,6 +2163,13 @@ snapshots:
+       react: 19.3.1
+       scheduler: 0.28.0
+ 
++  react-leaflet@5.0.0(leaflet@1.9.4)(react-dom@19.3.1(react@19.3.1))(react@19.3.1):
++    dependencies:
++      '@react-leaflet/core': 3.0.0(leaflet@1.9.4)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
++      leaflet: 1.9.4
++      react: 19.3.1
++      react-dom: 19.3.1(react@19.3.1)
++
+   react-refresh@0.17.0: {}
+ 
+   react@19.3.1: {}
+diff --git a/src/app/App.tsx b/src/app/App.tsx
+index 403ecd4d8d4b26195315fdfdf68509a0e5d15993..5965aa7a046ac96e278955b27ee63f6b18058d0a 100644
+--- a/src/app/App.tsx
++++ b/src/app/App.tsx
+@@ -118,7 +118,13 @@ export function App() {
+             <DonorQueue profile={profile} batches={dashboard.data.batches} subBatches={dashboard.data.subBatches} onRefresh={dashboard.reload} online={canDispatch} />
+             <RiderCockpit profile={profile} subBatches={dashboard.data.subBatches} riders={dashboard.data.riders} onRefresh={dashboard.reload} online={canDispatch} />
+           </div>
+-          <FlowMap shelters={dashboard.data.shelters} subBatches={dashboard.data.subBatches} />
++          <FlowMap
++            shelters={dashboard.data.shelters}
++            riders={dashboard.data.riders}
++            subBatches={dashboard.data.subBatches}
++            isDemo={auth.isDemo}
++            online={dashboard.browserOnline}
++          />
+           <div className="right-rail">
+             <ShelterBoard shelters={dashboard.data.shelters} />
+             <div className="operator-note">
+diff --git a/src/features/auth/useDashboard.ts b/src/features/auth/useDashboard.ts
+index 472ed4ceac8907e4a9c78138dc921030c4a581a1..8cba81b09d2d0edb4f1c7e0a3127dee0744bb6cb 100644
+--- a/src/features/auth/useDashboard.ts
++++ b/src/features/auth/useDashboard.ts
+@@ -72,13 +72,9 @@ export function useDashboard(userId: string | undefined, isDemo = false) {
+ 
+       const firstError = profileResult.error ?? batchesResult.error ?? subBatchesResult.error ?? sheltersResult.error ?? ridersResult.error ?? auditResult.error;
+       if (firstError) {
+-        // If Supabase tables are empty or have permission errors, fallback to rich demo store
+-        console.warn('Supabase query issue, using demo store snapshot:', firstError.message);
+-        setData(demoStore.getSnapshot());
+-        setState('ready');
+-        setLastSyncedAt(new Date().toISOString());
+-        setRealtimeStatus('SUBSCRIBED');
+-        hasSnapshot.current = true;
++        console.warn('Supabase dashboard query failed:', firstError.message);
++        setError(firstError.message);
++        setState(hasSnapshot.current ? 'ready' : 'error');
+         return;
+       }
+ 
+@@ -110,12 +106,10 @@ export function useDashboard(userId: string | undefined, isDemo = false) {
+     try {
+       await request;
+     } catch (cause) {
+-      console.warn('Supabase network error, fallback to demo store:', cause);
+-      setData(demoStore.getSnapshot());
+-      setState('ready');
+-      setLastSyncedAt(new Date().toISOString());
+-      setRealtimeStatus('SUBSCRIBED');
+-      hasSnapshot.current = true;
++      const message = cause instanceof Error ? cause.message : 'Unable to load the current dispatch data.';
++      console.warn('Supabase dashboard network error:', message);
++      setError(message);
++      setState(hasSnapshot.current ? 'ready' : 'error');
+     } finally {
+       if (inFlight.current === request) inFlight.current = null;
+     }
+diff --git a/src/features/routing/FlowMap.tsx b/src/features/routing/FlowMap.tsx
+index e265794390f6fc7629afebe80b37da261ed41619..4f31b2a647cb9518b44f1740355545f3f4f55c44 100644
+--- a/src/features/routing/FlowMap.tsx
++++ b/src/features/routing/FlowMap.tsx
+@@ -1,88 +1,182 @@
+-import { useEffect, useMemo, useRef } from 'react';
+-import { gsap } from 'gsap';
+-import { MotionPathPlugin } from 'gsap/MotionPathPlugin';
+-import { Map, Navigation2, PackageCheck } from 'lucide-react';
+-import type { Shelter, SubBatch } from '../../lib/types/domain';
++import { useEffect, useMemo, useState } from 'react';
++import { CircleMarker, MapContainer, Polyline, Popup, TileLayer, Tooltip, ZoomControl, useMap } from 'react-leaflet';
++import type { LatLngTuple } from 'leaflet';
++import { Map as MapIcon } from 'lucide-react';
++import type { Rider, Shelter, SubBatch } from '../../lib/types/domain';
++import { heartbeatAge } from '../../lib/format';
++import { buildMapRoutes, toLatLng } from './mapUtils';
+ 
+-gsap.registerPlugin(MotionPathPlugin);
+-
+-interface Props { shelters: Shelter[]; subBatches: SubBatch[] }
+-interface Route { item: SubBatch; shelter: Shelter; path: string; target: { x: number; y: number } }
++interface Props {
++  shelters: Shelter[];
++  riders: Rider[];
++  subBatches: SubBatch[];
++  isDemo: boolean;
++  online: boolean;
++}
+ 
+-function routeId(id: string) { return `route-${id.replaceAll('-', '')}`; }
++const TILE_URL = import.meta.env.VITE_MAP_TILE_URL?.trim() || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
++const TILE_ATTRIBUTION = import.meta.env.VITE_MAP_ATTRIBUTION?.trim()
++  || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>';
+ 
+-export function FlowMap({ shelters, subBatches }: Props) {
+-  const svgRef = useRef<SVGSVGElement | null>(null);
+-  const markerRefs = useRef<Record<string, SVGGElement | null>>({});
+-  const visibleShelters = shelters.slice(0, 4);
+-  const routes = useMemo<Route[]>(() => subBatches
+-    .filter((item) => ['claimed', 'in_transit'].includes(item.status) && item.shelter_id)
+-    .flatMap((item) => {
+-      const shelter = shelters.find((candidate) => candidate.id === item.shelter_id);
+-      if (!shelter) return [];
+-      const index = Math.max(0, shelters.findIndex((candidate) => candidate.id === shelter.id));
+-      const y = 78 + (index % 4) * 72;
+-      const x = 650;
+-      const startX = 148;
+-      const startY = 176;
+-      const curve = Math.max(42, Math.abs(y - startY) * 0.6);
+-      const path = `M ${startX} ${startY} C 320 ${startY - curve}, 456 ${y + curve}, ${x} ${y}`;
+-      return [{ item, shelter, path, target: { x, y } }];
+-    }), [shelters, subBatches]);
+-  const routeSignature = routes.map((route) => `${route.item.id}:${route.item.shelter_id}:${route.item.status}`).join('|');
++function FitToLocations({ points }: { points: LatLngTuple[] }) {
++  const map = useMap();
++  const signature = points.map(([latitude, longitude]) => `${latitude.toFixed(5)},${longitude.toFixed(5)}`).join('|');
+ 
+   useEffect(() => {
+-    const svg = svgRef.current;
+-    if (!svg || routes.length === 0) return;
+-    const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+-    routes.forEach((route) => {
+-      const marker = markerRefs.current[route.item.id];
+-      const path = svg.querySelector<SVGPathElement>(`#${routeId(route.item.id)}`);
+-      if (!marker || !path) return;
+-      if (prefersReduced) {
+-        gsap.set(marker, { x: 0, y: 0, opacity: 1 });
+-        return;
++    if (points.length === 0) return;
++    const frame = window.requestAnimationFrame(() => {
++      map.invalidateSize({ animate: false });
++      if (points.length === 1) {
++        map.setView(points[0], 13, { animate: false });
++      } else {
++        map.fitBounds(points, { padding: [28, 28], maxZoom: 13, animate: false });
+       }
+-      gsap.to(marker, {
+-        motionPath: { path, align: path, alignOrigin: [0.5, 0.5], autoRotate: true, start: 0, end: 1 },
+-        duration: 0.7,
+-        ease: 'power2.inOut',
+-        overwrite: 'auto',
+-      });
+     });
+-    return () => { gsap.killTweensOf(Object.values(markerRefs.current).filter(Boolean)); };
+-  }, [routeSignature, routes]);
++    return () => window.cancelAnimationFrame(frame);
++  }, [map, signature, points]);
++
++  return null;
++}
++
++function heartbeatLabel(value: string | null): string {
++  const seconds = heartbeatAge(value);
++  return seconds === null ? 'No heartbeat recorded' : `Last heartbeat ${seconds}s ago`;
++}
++
++export function FlowMap({ shelters, riders, subBatches, isDemo, online }: Props) {
++  const [tileFailed, setTileFailed] = useState(false);
++  const routes = useMemo(() => buildMapRoutes(subBatches, riders, shelters), [subBatches, riders, shelters]);
++  const locatedShelters = useMemo(() => shelters.filter((item) => toLatLng(item.latitude, item.longitude) !== null), [shelters]);
++  const locatedRiders = useMemo(() => riders.filter((item) => toLatLng(item.latitude, item.longitude) !== null), [riders]);
++  const points = useMemo(() => {
++    const unique = new globalThis.Map<string, LatLngTuple>();
++    for (const shelter of locatedShelters) {
++      const point = toLatLng(shelter.latitude, shelter.longitude);
++      if (point) unique.set(`${point[0].toFixed(5)},${point[1].toFixed(5)}`, point);
++    }
++    for (const rider of locatedRiders) {
++      const point = toLatLng(rider.latitude, rider.longitude);
++      if (point) unique.set(`${point[0].toFixed(5)},${point[1].toFixed(5)}`, point);
++    }
++    return [...unique.values()];
++  }, [locatedShelters, locatedRiders]);
++  const activeAssignments = subBatches.filter((item) => ['claimed', 'in_transit'].includes(item.status)).length;
++
++  const tileEvents = useMemo(() => ({
++    tileerror: () => setTileFailed(true),
++    load: () => setTileFailed(false),
++  }), []);
+ 
+   return <section className="panel flow-panel">
+-    <div className="panel-heading"><div><span className="section-index">02 / LIVE TRANSIT</span><h2>Dispatch flow</h2></div><span className="flow-live"><span className="live-dot" /> REALTIME</span></div>
+-    <div className="flow-canvas">
+-      <svg ref={svgRef} viewBox="0 0 760 350" role="img" aria-labelledby="flow-title flow-desc" preserveAspectRatio="xMidYMid meet">
+-        <title id="flow-title">Live donor to shelter route map</title><desc id="flow-desc">Curved routes connect the donor handoff point to shelters. Rider markers follow committed database assignments.</desc>
+-        <defs>
+-          <pattern id="map-grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M 24 0 L 0 0 0 24" fill="none" stroke="currentColor" strokeOpacity=".055" strokeWidth=".7" /></pattern>
+-          <marker id="route-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10z" fill="#2d6a53" /></marker>
+-        </defs>
+-        <rect x="0" y="0" width="760" height="350" rx="14" fill="url(#map-grid)" />
+-        <path className="map-contour" d="M232 16c90 50 8 102 116 143s-14 85 78 175M308 8c50 45 22 84 82 111s-3 93 49 161M477 4c-44 56 34 98-6 137s-26 90 14 206" fill="none" />
+-        <text x="36" y="32" className="map-label">DONOR / PICKUP</text>
+-        <circle cx="102" cy="176" r="38" className="donor-halo" /><circle cx="102" cy="176" r="24" className="donor-node" />
+-        <foreignObject x="88" y="162" width="28" height="28"><div className="map-icon donor-map-icon"><PackageCheck size={22} /></div></foreignObject>
+-        <text x="60" y="228" className="map-node-name">Origin hub</text>
+-        <text x="60" y="245" className="map-node-meta">BATCH INTAKE</text>
+-        {routes.map(({ item, path, shelter }, index) => <g key={item.id}>
+-          <path id={routeId(item.id)} d={path} className={`route-line ${item.status === 'in_transit' ? 'route-moving' : 'route-claimed'}`} markerEnd="url(#route-arrow)" />
+-          <g ref={(element) => { markerRefs.current[item.id] = element; }} className={`rider-marker ${index % 2 ? 'marker-alt' : ''}`}>
+-            <circle r="10" className="rider-marker-halo" /><circle r="6" className="rider-marker-core" /><Navigation2 size={10} className="rider-marker-icon" />
+-          </g>
+-          <text x="{0}" y="{0}" className="sr-only">Rider assigned to {shelter.name}</text>
+-        </g>)}
+-        {visibleShelters.map((shelter, index) => {
+-          const x = 650, y = 78 + index * 72;
+-          return <g key={shelter.id} className="shelter-node"><circle cx={x} cy={y} r="19" className={shelter.current_demand > 0 ? 'shelter-node-ring demand-open' : 'shelter-node-ring'} /><circle cx={x} cy={y} r="12" className="shelter-node-core" /><text x={x + 30} y={y - 1} className="map-node-name">{shelter.name.length > 16 ? `${shelter.name.slice(0, 15)}…` : shelter.name}</text><text x={x + 30} y={y + 15} className="map-node-meta">{shelter.current_demand > 0 ? `${shelter.current_demand} UNFILLED` : 'NO DEMAND'}</text></g>;
++    <div className="panel-heading">
++      <div><span className="section-index">02 / LIVE TRANSIT</span><h2>Geographic dispatch map</h2></div>
++      <span className="flow-live"><span className="live-dot" />{isDemo ? 'DEMO COORDINATES' : 'SAVED COORDINATES'}</span>
++    </div>
++    <div className="flow-canvas geo-map-wrap">
++      {points.length > 0 ? <MapContainer
++        className="geo-map"
++        center={points[0]}
++        zoom={12}
++        minZoom={3}
++        maxZoom={18}
++        scrollWheelZoom={false}
++        zoomControl={false}
++        preferCanvas
++      >
++        <ZoomControl position="bottomleft" />
++        <TileLayer
++          url={TILE_URL}
++          attribution={TILE_ATTRIBUTION}
++          maxZoom={18}
++          keepBuffer={1}
++          updateWhenIdle
++          updateWhenZooming={false}
++          eventHandlers={tileEvents}
++        />
++        <FitToLocations points={points} />
++
++        {routes.map((route) => <Polyline
++          key={route.item.id}
++          positions={[route.from, route.to]}
++          pathOptions={{
++            color: route.item.status === 'in_transit' ? '#2d6a53' : '#c08a2f',
++            weight: 3,
++            opacity: 0.82,
++            dashArray: route.item.status === 'in_transit' ? '8 7' : '4 7',
++          }}
++        >
++          <Tooltip sticky>{`${route.rider.display_name ?? 'Rider'} → ${route.shelter.name}`}</Tooltip>
++          <Popup>
++            <div className="geo-popup">
++              <strong>{route.item.status === 'in_transit' ? 'In transit' : 'Claimed'}</strong>
++              <span>{route.item.quantity} units · {route.shelter.name}</span>
++              <small>Direct line {route.directKm.toFixed(1)} km; not a road route or ETA.</small>
++            </div>
++          </Popup>
++        </Polyline>)}
++
++        {locatedShelters.map((shelter) => {
++          const position = toLatLng(shelter.latitude, shelter.longitude);
++          if (!position) return null;
++          return <CircleMarker
++            key={`shelter-${shelter.id}`}
++            center={position}
++            radius={shelter.current_demand > 0 ? 9 : 7}
++            pathOptions={{ color: '#24563f', weight: 2, fillColor: shelter.current_demand > 0 ? '#77a77e' : '#9ba89c', fillOpacity: 0.95 }}
++          >
++            <Tooltip direction="top" offset={[0, -7]}>{shelter.name}</Tooltip>
++            <Popup>
++              <div className="geo-popup">
++                <strong>{shelter.name}</strong>
++                <span>Unfilled demand {shelter.current_demand} / capacity {shelter.capacity}</span>
++                <small>Water {shelter.has_water ? 'available' : 'unavailable'} · Fuel {shelter.has_fuel ? 'available' : 'unavailable'}</small>
++                <small>{isDemo ? 'Static demo coordinate' : 'Saved shelter coordinate'}</small>
++              </div>
++            </Popup>
++          </CircleMarker>;
+         })}
+-        {routes.length === 0 && <g className="map-empty"><path d="M198 176 C 310 100, 438 252, 564 176" className="route-empty" /><circle cx="378" cy="176" r="5" /><text x="274" y="216">Routes appear when claims are committed</text></g>}
+-      </svg>
+-      <div className="flow-legend"><span><i className="legend-origin" /> DONOR</span><span><i className="legend-rider" /> RIDER</span><span><i className="legend-shelter" /> SHELTER</span><span className="map-count"><Map size={12} /> {routes.length} ACTIVE ROUTES</span></div>
++
++        {locatedRiders.map((rider) => {
++          const position = toLatLng(rider.latitude, rider.longitude);
++          if (!position) return null;
++          const isNeedsCheck = rider.status === 'needs_check' || rider.status === 'offline';
++          return <CircleMarker
++            key={`rider-${rider.profile_id}`}
++            center={position}
++            radius={7}
++            pathOptions={{ color: '#8d3e2f', weight: 2, fillColor: isNeedsCheck ? '#d39a39' : '#e15c43', fillOpacity: 0.96 }}
++          >
++            <Tooltip direction="top" offset={[0, -7]}>{rider.display_name ?? 'Rider'} · {rider.status.replaceAll('_', ' ')}</Tooltip>
++            <Popup>
++              <div className="geo-popup">
++                <strong>{rider.display_name ?? 'Rider'}</strong>
++                <span>Status: {rider.status.replaceAll('_', ' ')}</span>
++                <small>{heartbeatLabel(rider.last_heartbeat_at)}</small>
++                <small>{isDemo ? 'Static demo coordinate' : 'Last saved coordinate; GPS tracking is not enabled'}</small>
++              </div>
++            </Popup>
++          </CircleMarker>;
++        })}
++      </MapContainer> : <div className="geo-empty" role="status">
++        <MapIcon size={24} />
++        <strong>No saved map coordinates</strong>
++        <span>Add valid latitude/longitude to a shelter or rider record to place it on the map.</span>
++      </div>}
++
++      {(!online || tileFailed) && points.length > 0 && <div className="map-tile-notice" role="status" aria-live="polite">
++        {online ? 'Map tiles could not be loaded. Saved markers remain visible.' : 'Offline — map tiles need network access; showing saved coordinates only.'}
++      </div>}
++    </div>
++    <p className="map-summary" aria-live="polite">
++      {locatedShelters.length} shelters · {locatedRiders.length} riders with saved positions · {routes.length} mapped active routes of {activeAssignments} active assignments. Lines show direct links only.
++      {isDemo && ' Demo locations are static San Francisco fixtures.'}
++      {!online && ' The geographic basemap is unavailable offline.'}
++    </p>
++    <div className="flow-legend" aria-label="Map legend">
++      <span><i className="legend-rider" /> RIDER / LAST SAVED POSITION</span>
++      <span><i className="legend-shelter" /> SHELTER</span>
++      <span><i className="legend-route" /> ASSIGNMENT / DIRECT LINE</span>
++      <span className="map-count"><MapIcon size={12} /> {routes.length} MAPPED ROUTES</span>
+     </div>
+   </section>;
+ }
+diff --git a/src/features/routing/mapUtils.test.ts b/src/features/routing/mapUtils.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..1436aba5b6f940b973323117357d5f80965852f5
+--- /dev/null
++++ b/src/features/routing/mapUtils.test.ts
+@@ -0,0 +1,74 @@
++import { describe, expect, it } from 'vitest';
++import type { Rider, Shelter, SubBatch } from '../../lib/types/domain';
++import { buildMapRoutes, straightLineDistanceKm, toLatLng } from './mapUtils';
++
++const rider: Rider = {
++  profile_id: 'rider-1',
++  status: 'busy',
++  vehicle_capacity: 40,
++  last_heartbeat_at: '2026-10-25T08:00:00.000Z',
++  latitude: 37.7833,
++  longitude: -122.4167,
++  display_name: 'Rider One',
++};
++
++const shelter: Shelter = {
++  id: 'shelter-1',
++  name: 'Shelter One',
++  capacity: 100,
++  current_demand: 20,
++  has_water: true,
++  has_fuel: true,
++  latitude: 37.7749,
++  longitude: -122.4194,
++};
++
++function makeSubBatch(overrides: Partial<SubBatch> = {}): SubBatch {
++  return {
++    id: 'sub-1',
++    batch_id: 'batch-1',
++    shelter_id: 'shelter-1',
++    rider_id: 'rider-1',
++    quantity: 20,
++    dependency: 'none',
++    status: 'in_transit',
++    expires_at: '2026-10-25T10:00:00.000Z',
++    claimed_at: null,
++    confirmation_deadline: null,
++    heartbeat_at: null,
++    picked_up_at: null,
++    delivered_at: null,
++    created_at: '2026-10-25T08:00:00.000Z',
++    ...overrides,
++  };
++}
++
++describe('map geometry helpers', () => {
++  it('accepts finite in-range latitude/longitude pairs only', () => {
++    expect(toLatLng(37.7, -122.4)).toEqual([37.7, -122.4]);
++    expect(toLatLng(null, -122.4)).toBeNull();
++    expect(toLatLng(Number.NaN, 0)).toBeNull();
++    expect(toLatLng(91, 0)).toBeNull();
++    expect(toLatLng(0, -181)).toBeNull();
++  });
++
++  it('maps only active assignments with both saved coordinates', () => {
++    const route = makeSubBatch();
++    const missingRiderLocation = { ...rider, profile_id: 'rider-2', latitude: null, longitude: null };
++    const result = buildMapRoutes(
++      [route, makeSubBatch({ id: 'available', status: 'available' }), makeSubBatch({ id: 'unmapped', rider_id: 'rider-2' })],
++      [rider, missingRiderLocation],
++      [shelter],
++    );
++
++    expect(result).toHaveLength(1);
++    expect(result[0]).toMatchObject({ item: { id: route.id }, rider: { profile_id: 'rider-1' }, shelter: { id: 'shelter-1' } });
++    expect(result[0].directKm).toBeGreaterThan(0);
++  });
++
++  it('computes a direct geodesic distance without claiming road mileage', () => {
++    const oneDegreeAtEquator = straightLineDistanceKm([0, 0], [0, 1]);
++    expect(oneDegreeAtEquator).toBeCloseTo(111.195, 2);
++    expect(straightLineDistanceKm([37.7749, -122.4194], [37.7749, -122.4194])).toBe(0);
++  });
++});
+diff --git a/src/features/routing/mapUtils.ts b/src/features/routing/mapUtils.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..55a0902a7324e24287b9ecd434253bf611992a34
+--- /dev/null
++++ b/src/features/routing/mapUtils.ts
+@@ -0,0 +1,47 @@
++import type { Rider, Shelter, SubBatch } from '../../lib/types/domain';
++
++export type LatLng = [latitude: number, longitude: number];
++
++export interface MapRoute {
++  item: SubBatch;
++  rider: Rider;
++  shelter: Shelter;
++  from: LatLng;
++  to: LatLng;
++  directKm: number;
++}
++
++export function toLatLng(latitude: unknown, longitude: unknown): LatLng | null {
++  if (typeof latitude !== 'number' || typeof longitude !== 'number') return null;
++  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
++  if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return null;
++  return [latitude, longitude];
++}
++
++export function straightLineDistanceKm(from: LatLng, to: LatLng): number {
++  const earthRadiusKm = 6371.0088;
++  const radians = (degrees: number) => (degrees * Math.PI) / 180;
++  const [fromLat, fromLon] = from.map(radians) as LatLng;
++  const [toLat, toLon] = to.map(radians) as LatLng;
++  const deltaLat = toLat - fromLat;
++  const deltaLon = toLon - fromLon;
++  const haversine = Math.sin(deltaLat / 2) ** 2
++    + Math.cos(fromLat) * Math.cos(toLat) * Math.sin(deltaLon / 2) ** 2;
++  return 2 * earthRadiusKm * Math.asin(Math.sqrt(Math.min(1, haversine)));
++}
++
++export function buildMapRoutes(subBatches: SubBatch[], riders: Rider[], shelters: Shelter[]): MapRoute[] {
++  const ridersById = new globalThis.Map(riders.map((rider) => [rider.profile_id, rider]));
++  const sheltersById = new globalThis.Map(shelters.map((shelter) => [shelter.id, shelter]));
++
++  return subBatches.flatMap((item) => {
++    if (!['claimed', 'in_transit'].includes(item.status) || !item.rider_id || !item.shelter_id) return [];
++    const rider = ridersById.get(item.rider_id);
++    const shelter = sheltersById.get(item.shelter_id);
++    if (!rider || !shelter) return [];
++    const from = toLatLng(rider.latitude, rider.longitude);
++    const to = toLatLng(shelter.latitude, shelter.longitude);
++    if (!from || !to) return [];
++    return [{ item, rider, shelter, from, to, directKm: straightLineDistanceKm(from, to) }];
++  });
++}
+diff --git a/src/main.tsx b/src/main.tsx
+index f77f7a54045dafb8248936ad839d6ea4840bbe53..d9be0ec46282aba8266beb1ac24853eb95bf2ad8 100644
+--- a/src/main.tsx
++++ b/src/main.tsx
+@@ -1,6 +1,7 @@
+ import React from 'react';
+ import ReactDOM from 'react-dom/client';
+ import { App } from './app/App';
++import 'leaflet/dist/leaflet.css';
+ import './styles/index.css';
+ import { registerServiceWorker } from './lib/registerServiceWorker';
+ 
+diff --git a/src/styles/index.css b/src/styles/index.css
+index 0ab3ca65e0f1072efd5a08b5e4acf454c0a6a10b..74f29829cb200231118a9a23d0d684df1feb17ac 100644
+--- a/src/styles/index.css
++++ b/src/styles/index.css
+@@ -141,33 +141,28 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
+ .flow-panel { padding: 15px 15px 12px; }
+ .flow-live { display: flex; align-items: center; gap: 7px; color: var(--moss); font: 8px var(--mono); letter-spacing: .08em; }
+ .flow-live .live-dot { width: 6px; height: 6px; }
+-.flow-canvas { min-height: 315px; position: relative; border: 1px solid #e1dfd6; background: #f7f6ef; overflow: hidden; }
+-.flow-canvas svg { display: block; width: 100%; height: 300px; color: var(--ink); }
+-.map-contour { stroke: #b4c2b8; stroke-opacity: .2; stroke-width: 16; stroke-linecap: round; }
+-.map-label { fill: #8b8e84; font-size: 8px; letter-spacing: 1px; }
+-.map-node-name { fill: var(--ink); font: 600 10px 'Manrope', sans-serif; }
+-.map-node-meta { fill: #898d83; font-size: 7px; letter-spacing: .45px; }
+-.donor-halo { fill: #e6eee5; stroke: #c7d8c9; stroke-width: 1; }
+-.donor-node { fill: #2d6a53; }
+-.map-icon { width: 28px; height: 28px; display: grid; place-items: center; color: #f8f6ee; }
+-.route-line { fill: none; stroke: #2d6a53; stroke-width: 2; opacity: .7; stroke-dasharray: 5 7; }
+-.route-moving { stroke: #2d6a53; opacity: .85; }
+-.route-claimed { stroke: #d09a36; opacity: .7; }
+-.route-empty { fill: none; stroke: #bac7bb; stroke-width: 1.5; stroke-dasharray: 3 8; }
+-.map-empty circle { fill: #d09a36; }
+-.map-empty text { fill: #83877d; font: 10px var(--mono); }
+-.rider-marker-halo { fill: rgba(225,92,67,.19); }
+-.rider-marker-core { fill: var(--coral); stroke: #fff9ef; stroke-width: 2; }
+-.rider-marker-icon { color: #fff9ef; position: absolute; transform: translate(-5px,-5px); }
+-.shelter-node-ring { fill: #f7f6ef; stroke: #b8bdb3; stroke-width: 1.5; }
+-.shelter-node-ring.demand-open { stroke: #2d6a53; stroke-dasharray: 2 3; }
+-.shelter-node-core { fill: #2d6a53; }
++.flow-canvas { min-height: 342px; position: relative; border: 1px solid #e1dfd6; background: #eef0e9; overflow: hidden; }
++.geo-map { z-index: 0; width: 100%; height: 340px; color: var(--ink); background: #e9ece5; }
++.geo-map .leaflet-control-attribution { max-width: 76%; margin: 0 4px 4px 0; padding: 2px 4px; background: rgba(250,249,244,.94); color: #536157; font: 9px var(--mono); white-space: normal; }
++.geo-map .leaflet-control-attribution a { color: #24563f; }
++.geo-map .leaflet-control-zoom a { color: var(--ink); background: #faf9f4; border-color: #d8d7cf; }
++.geo-map .leaflet-popup-content-wrapper, .geo-map .leaflet-popup-tip { background: #faf9f4; color: var(--ink); }
++.geo-map .leaflet-popup-content { margin: 10px 12px; }
++.geo-map .leaflet-tooltip { border: 1px solid #d8d7cf; background: #faf9f4; color: var(--ink); font: 10px var(--mono); }
++.geo-popup { min-width: 145px; display: grid; gap: 5px; font: 11px 'Manrope', sans-serif; }
++.geo-popup strong { font-size: 12px; }
++.geo-popup small { color: #687269; line-height: 1.35; }
++.map-tile-notice { position: absolute; z-index: 700; top: 8px; left: 8px; max-width: min(330px, calc(100% - 16px)); padding: 7px 9px; border: 1px solid #ddc993; background: rgba(250,249,244,.95); color: #725822; font: 9px/1.4 var(--mono); box-shadow: 0 2px 8px rgba(32,42,36,.08); }
++.geo-empty { min-height: 340px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 24px; color: #65736a; text-align: center; }
++.geo-empty strong { color: var(--ink); font-size: 13px; }
++.geo-empty span { max-width: 280px; font: 10px/1.5 var(--mono); }
++.map-summary { margin: 8px 2px 0; color: #6e756c; font: 9px/1.5 var(--mono); }
+ .flow-legend { display: flex; align-items: center; gap: 13px; padding: 7px 8px 0; font-size: 8px; color: #82857b; letter-spacing: .04em; }
+ .flow-legend span { display: flex; align-items: center; gap: 5px; }
+ .flow-legend i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+-.legend-origin { background: var(--moss); }
+ .legend-rider { background: var(--coral); }
+ .legend-shelter { background: #b7c9b7; border: 1px solid var(--moss); }
++.legend-route { width: 14px !important; height: 0 !important; border-top: 2px dashed #c08a2f; border-radius: 0 !important; }
+ .flow-legend .map-count { margin-left: auto; color: #65736a; }
+ 
+ .shelter-panel { padding-bottom: 12px; }
+@@ -324,7 +319,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
+   .workbench { display: flex; flex-direction: column; }
+   .left-rail, .flow-panel, .right-rail { width: 100%; }
+   .flow-panel { order: -1; }
+-  .flow-canvas svg { height: auto; min-height: 230px; }
++  .geo-map, .geo-empty { height: 280px; min-height: 280px; }
+   .right-rail { display: flex; flex-direction: column; }
+   .shelter-list { grid-template-columns: 1fr; }
+   .judge-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+diff --git a/src/vite-env.d.ts b/src/vite-env.d.ts
+index bafeefabfbe4c8a79de0724fd9589399975fea4c..0dbfa7d969597a4b51172216475966741100c8a8 100644
+--- a/src/vite-env.d.ts
++++ b/src/vite-env.d.ts
+@@ -3,6 +3,8 @@
+ interface ImportMetaEnv {
+   readonly VITE_SUPABASE_URL: string;
+   readonly VITE_SUPABASE_PUBLISHABLE_KEY: string;
++  readonly VITE_MAP_TILE_URL?: string;
++  readonly VITE_MAP_ATTRIBUTION?: string;
+ }
+ 
+ interface ImportMeta {
